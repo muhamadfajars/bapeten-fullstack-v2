@@ -6,6 +6,7 @@ authentication and access controls before any multi-tenant production deployment
 from __future__ import annotations
 import hashlib, hmac, os, re, shutil, time
 from concurrent.futures import ThreadPoolExecutor
+from contextlib import asynccontextmanager
 from pathlib import Path
 from threading import Lock
 from fastapi import Request, FastAPI, UploadFile, File, Form, Depends, HTTPException, Header, BackgroundTasks
@@ -14,14 +15,40 @@ from fastapi.middleware.cors import CORSMiddleware
 from . import storage
 from . import vpn_access
 
+# Auto-load backend/.env if running uvicorn directly without shell wrapper
+_ENV_FILE = Path(__file__).resolve().parents[1] / '.env'
+if _ENV_FILE.is_file():
+    for _line in _ENV_FILE.read_text(encoding='utf-8').splitlines():
+        _line = _line.strip()
+        if _line and not _line.startswith('#') and '=' in _line:
+            _k, _v = _line.split('=', 1)
+            _k, _v = _k.strip(), _v.strip().strip("'\"")
+            if _k and _k not in os.environ:
+                os.environ[_k] = _v
+
 CATEGORIES={'formulir','proteksi','perawatan','manajemen','teknis','personel','tld','spesifikasi','label','impor','kesesuaian','fungsi','paparan','kebocoran'}
 EXT={'.pdf','.png','.jpg','.jpeg','.bmp','.webp','.tif','.tiff','.docx'}
 MAX_FILE=int(os.environ.get('BAPETEN_MAX_FILE_MB','40'))*1024*1024
 MAX_DOCS=int(os.environ.get('BAPETEN_MAX_DOCUMENTS','120'))
 TOKEN=os.environ.get('BAPETEN_API_TOKEN','')
-app=FastAPI(title='BAPETEN AI Evaluator API',version='0.2.0',docs_url=None,redoc_url=None)
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    storage.init_db()
+    if vpn_access.enabled():
+        vpn_access.init_vpn_db()
+    storage.recover_stale_jobs()
+    yield
+
+app=FastAPI(title='BAPETEN AI Evaluator API',version='0.2.0',docs_url=None,redoc_url=None,lifespan=lifespan)
 origins=[v.strip() for v in os.environ.get('BAPETEN_CORS_ORIGINS','http://localhost:5173,http://127.0.0.1:5173').split(',') if v.strip()]
-app.add_middleware(CORSMiddleware,allow_origins=origins,allow_credentials=False,allow_methods=['GET','POST','DELETE'],allow_headers=['Authorization','Content-Type'])
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=origins,
+    allow_credentials=False,
+    allow_methods=['GET','POST','DELETE','OPTIONS'],
+    allow_headers=['Authorization','Content-Type','X-Bapeten-Vpn-User']
+)
 POOL=ThreadPoolExecutor(max_workers=max(1,int(os.environ.get('BAPETEN_ANALYSIS_WORKERS','1'))))
 SUBMIT_LOCK=Lock()
 
@@ -60,6 +87,8 @@ def list_documents(aid:str):
 @app.post('/api/v1/applications/{aid}/documents',dependencies=[Depends(authorize)])
 async def upload(aid:str,category:str=Form(...),subtype:str|None=Form(None),file:UploadFile=File(...)):
     must_app(aid)
+    j=storage.get_job_latest_running(aid) if hasattr(storage,'get_job_latest_running') else None
+    if j:raise HTTPException(409,'Tidak dapat mengunggah saat analisis aktif')
     if category not in CATEGORIES:raise HTTPException(422,'Kategori tidak dikenal')
     if len(storage.documents(aid))>=MAX_DOCS:raise HTTPException(413,'Batas jumlah dokumen tercapai')
     filename=Path(file.filename or '').name[:180]
@@ -175,7 +204,8 @@ def _run(jid,aid):
 def start_analysis(aid:str):
     must_app(aid)
     docs=storage.documents(aid)
-    if not any(d['category']=='formulir' for d in docs):raise HTTPException(422,'Unggah Formulir Permohonan PDF dahulu')
+    forms=[d for d in docs if d['category']=='formulir']
+    if len(forms)!=1:raise HTTPException(422,'Wajib tepat satu Formulir Permohonan PDF untuk acuan analisis')
     with SUBMIT_LOCK:
         with storage.db() as con:
             active=storage.row(con,"SELECT id,status FROM jobs WHERE app_id=? AND status IN ('queued','running') ORDER BY created DESC LIMIT 1",(aid,))
