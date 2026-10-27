@@ -8,6 +8,10 @@ PID="$(cat "$PIDFILE")"
 if [[ "$PID" =~ ^[0-9]+$ ]] && kill -0 "$PID" 2>/dev/null; then
   echo "Status: RUNNING (PID $PID)"
   echo "URL HPC: http://127.0.0.1:$PORT"
+  TOKEN="$(grep '^BAPETEN_API_TOKEN=' "$ROOT/backend/.env" 2>/dev/null | cut -d= -f2- | tr -d '\r"' || true)"
+  if [ -n "$TOKEN" ]; then
+    echo "Link browser laptop (auto-login): http://localhost:$PORT/?token=$TOKEN"
+  fi
   if command -v curl >/dev/null 2>&1; then
     curl -fsS --max-time 3 "http://127.0.0.1:$PORT/api/v1/health" || true
     echo

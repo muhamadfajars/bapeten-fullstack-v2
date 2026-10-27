@@ -1,6 +1,17 @@
 import type { FormReference, MatchSection, CategoryId } from './types/models';
 const API_BASE = (import.meta.env.VITE_API_URL as string | undefined)?.replace(/\/$/, '') || '';
-let authToken = '';
+let authToken = (() => {
+  try {
+    const params = new URLSearchParams(window.location.search);
+    const queryToken = params.get('token');
+    if (queryToken && queryToken.trim()) {
+      return queryToken.trim();
+    }
+    return localStorage.getItem('bapeten_api_token') || '';
+  } catch {
+    return '';
+  }
+})();
 export function setApiToken(token: string) { authToken = token.trim(); }
 export type StoredDocument = { id:string; category:CategoryId; subtype?:string; filename:string; size:number; sha256:string; uploaded:number };
 export type AnalysisResult = { application_id:string; job_id:string; result_version:string; source:'backend'; form_reference:FormReference; matching_sections:MatchSection[]; errors:Array<{document_id:string;category:CategoryId;filename:string;error:string}>; warnings:string[]; total_documents:number; analyzed_documents:number; finished_at:number; document_fingerprint:[string,string][] };
