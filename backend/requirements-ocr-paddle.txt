@@ -1,0 +1,5 @@
+# Reference only. Preferred install: bash setup_bapeten_ocr.sh --install-paddle
+# This explicit CPU release is published for supported Linux x86_64/Python platforms.
+# If your HPC blocks PyPI, consult IT for approved offline wheel installation.
+paddlepaddle==3.3.1
+paddleocr>=3,<4

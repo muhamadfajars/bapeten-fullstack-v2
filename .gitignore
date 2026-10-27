@@ -1,0 +1,90 @@
+# ========================================================
+# Environment & Sensitive Credentials (CRITICAL: NEVER COMMIT)
+# ========================================================
+.env
+.env.*
+*.env
+!.env.example
+!*.env.example
+
+# Private storage, data and uploaded hospital documents
+runtime_data/
+bapeten-private-data/
+uploads/
+extraction_cache/
+label_variant_cache_*/
+tmp/
+temp/
+
+# Databases
+*.sqlite
+*.sqlite3
+*.sqlite3-wal
+*.sqlite3-shm
+*.db
+
+# ========================================================
+# Python & Virtual Environments
+# ========================================================
+.venv/
+*/.venv/
+venv/
+*/venv/
+env/
+*/env/
+ENV/
+
+__pycache__/
+*/__pycache__/
+*/**/__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.pytest_cache/
+.coverage
+htmlcov/
+
+# ========================================================
+# Node.js & Frontend Build Artifacts
+# ========================================================
+node_modules/
+*/node_modules/
+dist/
+*/dist/
+build/
+*/build/
+.vite/
+*/.vite/
+*.tsbuildinfo
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# ========================================================
+# Runtime, Logs & Process IDs
+# ========================================================
+logs/
+*/logs/
+*.log
+run/
+*/run/
+*.pid
+
+# Temporary conversion & OCR scratch files
+.writing_*
+.cache_*
+bapeten_word_*
+bapeten_ocr_*
+
+# ========================================================
+# IDE, Editor & OS Artifacts
+# ========================================================
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.sublime-workspace
+*.sublime-project
+*.swp
+*.swo
+*~
