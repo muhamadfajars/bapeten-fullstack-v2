@@ -27,7 +27,8 @@ button:disabled { opacity: .5; cursor: not-allowed; }
 .sidebar { position: fixed; top: 0; bottom: 0; left: 0; width: 261px; padding: 27px 19px 23px; background: linear-gradient(160deg, #996e72 0%, #ab5961 46%, #855d62 100%); z-index: 60; display: flex; flex-direction: column; box-shadow: 6px 0 28px rgba(79, 41, 48, .065); }
 .sidebar::before { content: ''; position: absolute; inset: 0; pointer-events: none; background: radial-gradient(ellipse 230px 230px at 110% 4%, rgba(255,255,255,.14), transparent 77%); }
 .sidebar > * { position: relative; }
-.brand-lockup { display: flex; align-items: center; background: rgba(255,255,255,.965); border-radius: 11px; min-height: 78px; gap: 10px; padding: 12px 13px; box-shadow: 0 8px 20px rgba(61,23,29,.045); }
+.brand-lockup { display: flex; align-items: center; background: rgba(255,255,255,.965); border-radius: 11px; min-height: 78px; gap: 11px; padding: 12px 13px; box-shadow: 0 8px 20px rgba(61,23,29,.045); }
+.brand-logo { width: 45px; height: 45px; object-fit: contain; flex: none; border-radius: 50%; filter: drop-shadow(0 2px 5px rgba(0,0,0,.08)); }
 .crest { width: 50px; height: 52px; flex: none; display: grid; place-items: center; color: #b07a20; position: relative; }
 .crest::before { content: ''; position: absolute; border: 2px solid #c3a365; border-radius: 50% 50% 43% 43%; width: 36px; height: 40px; }
 .brand-name { color: #17233b; font-family: 'Plus Jakarta Sans', sans-serif; font-size: 19px; font-weight: 800; line-height: 1.22; letter-spacing: -.5px; }
@@ -39,7 +40,8 @@ button:disabled { opacity: .5; cursor: not-allowed; }
 .nav-link.active { color: #a3434b; background: linear-gradient(105deg, #fff9f9, #f9e5e7); box-shadow: 0 7px 14px rgba(85,26,34,.11); border-color: rgba(255,255,255,.36); font-weight: 800; }
 .active-marker { position: absolute; width: 4px; background: #df6d72; top: 5px; bottom: 5px; border-radius: 5px; left: 0; }
 .sidebar-foot { margin-top: auto; padding: 14px 6px 0; border-top: 1px solid rgba(255,255,255,.18); display: flex; align-items: center; gap: 11px; color: #fff; }
-.sidebar-seal { width: 34px; height: 34px; border-radius: 10px; background: rgba(255,255,255,.14); display: grid; place-items: center; }
+.sidebar-seal { width: 34px; height: 34px; border-radius: 10px; background: rgba(255,255,255,.14); display: grid; place-items: center; overflow: hidden; }
+.sidebar-seal-img { width: 22px; height: 22px; object-fit: contain; display: block; border-radius: 50%; }
 .sidebar-foot strong { display: block; font-size: 11px; font-weight: 700; }
 .sidebar-foot small { display: block; opacity: .76; font-size: 10px; margin-top: 3px; }
 .sidebar-mask { display: none; }

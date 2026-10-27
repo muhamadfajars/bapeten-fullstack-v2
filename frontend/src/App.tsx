@@ -5,8 +5,9 @@ import {
   ChevronDown, ChevronRight, CircleHelp, CloudUpload,
   ExternalLink, FileCheck2, FileClock, FileText, FolderOpen, HardDriveUpload,
   Home, Info, Layers3, LayoutDashboard, Menu,
-  Search, ShieldCheck, Trash2, UploadCloud, UsersRound, X,
+  Search, Trash2, UploadCloud, UsersRound, X,
 } from 'lucide-react';
+import bapetenLogo from './assets/bapeten-logo.png';
 import { CATEGORIES, categoryById } from './data/categories';
 import { matchingTotals } from './lib/matching';
 import {setApiToken,newApplication,uploadFile,deleteFile,analyze,jobStatus,fetchResults,listFiles,fetchPreviewFile,fetchEvidencePage} from './api';
@@ -36,7 +37,7 @@ const NAV: Array<{ id: PageId; label: string; icon: typeof Home }> = [
 function Brand() {
   return (
     <div className="brand-lockup">
-      <span className="crest" aria-hidden="true"><ShieldCheck size={28} strokeWidth={1.8} /></span>
+      <img src={bapetenLogo} alt="Logo BAPETEN" className="brand-logo" />
       <div><div className="brand-name">BAPETEN</div><div className="brand-description">Badan Pengawas Tenaga Nuklir</div></div>
     </div>
   );
@@ -57,7 +58,7 @@ function Sidebar({ active, navigate, open, close }: { active: PageId; navigate: 
         ))}
       </nav>
       <div className="sidebar-foot">
-        <span className="sidebar-seal"><ShieldCheck size={19} /></span>
+        <span className="sidebar-seal"><img src={bapetenLogo} alt="" className="sidebar-seal-img" /></span>
         <div><strong>BAPETEN AI Evaluator</strong><small>Sistem Evaluasi Dokumen</small></div>
       </div>
     </aside>
