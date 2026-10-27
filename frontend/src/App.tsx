@@ -9,7 +9,7 @@ import {
 } from 'lucide-react';
 import { CATEGORIES, categoryById } from './data/categories';
 import { matchingTotals } from './lib/matching';
-import {setApiToken,newApplication,uploadFile,deleteFile,analyze,jobStatus,fetchResults,listFiles,fetchFile,fetchEvidencePage} from './api';
+import {setApiToken,newApplication,uploadFile,deleteFile,analyze,jobStatus,fetchResults,listFiles,fetchPreviewFile,fetchEvidencePage} from './api';
 import type {AnalysisResult,AnalysisJob} from './api';
 import Glyph from './components/Glyph';
 import type { CategoryId, MatchRow, MatchSection, MatchStatus, UploadItem } from './types/models';
@@ -309,13 +309,15 @@ function App() {
 
 
   useEffect(() => {
-    if(!applicationId)return;
+    if(!applicationId || working)return;
     let cancelled=false;
     listFiles(applicationId).then((r)=>{
       if(cancelled)return;
       setItems(old=>{
-        const ids=new Set(old.filter(f=>f.serverId).map(f=>f.serverId));
-        return [...old,...r.documents.filter(d=>!ids.has(d.id)).map(d=>({id:d.id,serverId:d.id,name:d.filename,size:d.size,category:d.category,subtype:d.subtype,sha256:d.sha256,addedAt:new Date(d.uploaded*1000).toISOString()}))];
+        const existingServerIds=new Set(old.filter(f=>f.serverId).map(f=>f.serverId));
+        const existingKeys=new Set(old.map(f=>`${f.category}:${f.name}:${f.size}`));
+        const newDocs=r.documents.filter(d=>!existingServerIds.has(d.id) && !existingKeys.has(`${d.category}:${d.filename}:${d.size}`));
+        return [...old,...newDocs.map(d=>({id:d.id,serverId:d.id,name:d.filename,size:d.size,category:d.category,subtype:d.subtype,sha256:d.sha256,addedAt:new Date(d.uploaded*1000).toISOString()}))];
       });
       fetchResults(applicationId).then(x=>{
         if(cancelled)return;
@@ -325,7 +327,7 @@ function App() {
       }).catch(()=>{});
     }).catch(()=>{});
     return ()=>{cancelled=true;};
-  },[applicationId,tokenInput]);
+  },[applicationId,tokenInput,working]);
 
   const runAnalysis = async () => {
     if(working) return;
@@ -378,7 +380,7 @@ function App() {
     setItems((old) => {
       const next = [...old];
       for (const file of valid) {
-        const duplicate = next.some((item) => item.category === category && item.name === file.name && item.size === file.size && item.file?.lastModified === file.lastModified);
+        const duplicate = next.some((item) => item.category === category && item.name === file.name && item.size === file.size);
         if (!duplicate) { next.push({ id: ID(), name: file.name, size: file.size, category, subtype, addedAt: new Date().toISOString(), file }); }
       }
       return next;
@@ -403,7 +405,7 @@ function App() {
   const openEvidence = (documentId:string,page?:number) => {
     if(!applicationId)return;
     const win=window.open('about:blank','_blank');
-    fetchFile(applicationId,documentId).then((blob)=>{
+    fetchPreviewFile(applicationId,documentId).then((blob)=>{
       const url=URL.createObjectURL(blob);
       if(win)win.location.href=url+(page?`#page=${page}`:'');
       else window.open(url+(page?`#page=${page}`:''),'_blank');
@@ -414,7 +416,7 @@ function App() {
     if(!file){
       if(!applicationId || !serverId){announce('warning','File belum tersedia di server.');return;}
       const win=window.open('about:blank','_blank');
-      fetchFile(applicationId,serverId).then((blob)=>{
+      fetchPreviewFile(applicationId,serverId).then((blob)=>{
         const uri=URL.createObjectURL(blob);
         if(win)win.location.href=uri;else window.open(uri,'_blank');
         window.setTimeout(()=>URL.revokeObjectURL(uri),120000);
@@ -500,7 +502,7 @@ function App() {
             {working && <div className="analysis-progress" role="status"><strong>{job?.message || 'Memproses...'}</strong><div className="progress-track"><span style={{width:`${job?.progress ?? 0}%`}}/></div><small>{job?.progress ?? 0}%</small></div>}
             {backendError && <div className="analysis-error"><AlertCircle size={18}/>{backendError}</div>}
             {result?.warnings?.length ? <div className="analysis-errors"><strong>Peringatan parser formulir</strong>{result.warnings.map((e,i)=><p key={i}>{e}</p>)}</div> : null}
-            {result?.errors?.length ? <div className="analysis-errors"><strong>{result.errors.length} dokumen gagal diekstrak</strong>{result.errors.map(e=><p key={e.document_id}>{e.filename}: {e.error}</p>)}</div>:null}
+            {result?.errors?.length ? <div className="analysis-errors"><strong>{result.errors.length} dokumen gagal diekstrak</strong>{result.errors.map((e,idx)=><p key={`${e.document_id}-${idx}`}>{e.filename}: {e.error}</p>)}</div>:null}
             {!working && !result && <div className="analysis-empty"><Activity size={35}/><strong>Belum ada hasil matching</strong><p>Pilih dokumen, kemudian klik Mulai Analisis untuk melihat hasil dari backend.</p><button className="button button-soft" onClick={()=>goTo('upload')}>Ke halaman Upload</button></div>}
             <div className="matching-sections">
               {visibleMatchingSections.map((s, i) => <MatchingSection key={`${filter}:${s.id}`} section={s} search={query} filter={filter} onRowClick={(row, section) => setSelectedDetail({row, section})} expandedByDefault={i === 0} />)}
