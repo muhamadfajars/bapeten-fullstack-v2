@@ -11,9 +11,11 @@ import numpy as np
 import cv2
 import pytesseract
 
-pytesseract.pytesseract.tesseract_cmd = (
-    r"C:\Program Files\Tesseract-OCR\tesseract.exe"
-)
+_tess_bin = shutil.which('tesseract') or os.getenv('BAPETEN_TESSERACT_CMD', '').strip()
+if _tess_bin:
+    pytesseract.pytesseract.tesseract_cmd = _tess_bin
+elif os.name == 'nt' and Path(r"C:\Program Files\Tesseract-OCR\tesseract.exe").is_file():
+    pytesseract.pytesseract.tesseract_cmd = r"C:\Program Files\Tesseract-OCR\tesseract.exe"
 
 LABEL_RE = re.compile(r'^\s*(?:\d{1,2}[.)]\s*)?(?P<label>.{5,})')
 POSITIVE = re.compile(r'^(?:baik|bersih|ok|pass|passed|good|normal|acceptable|alat\s+be?r?fungsi\s+dengan\s+baik)$',re.I)
