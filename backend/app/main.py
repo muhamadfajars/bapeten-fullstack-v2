@@ -10,7 +10,7 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 from threading import Lock
 from fastapi import Request, FastAPI, UploadFile, File, Form, Depends, HTTPException, Header, BackgroundTasks
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, RedirectResponse
 from fastapi.middleware.cors import CORSMiddleware
 from . import storage
 from . import vpn_access
@@ -243,3 +243,31 @@ if _frontend_dist:
 
 # VPN reverse proxy boundary. Must register before ASGI application starts.
 app.middleware('http')(vpn_access.gateway_middleware)
+
+# Reverse proxy subpath middleware.
+# When deployed behind Nginx (e.g. http://192.168.30.75/rdi1/), Nginx forwards
+# requests with the /rdi1 prefix intact. This middleware strips the prefix so
+# FastAPI and mounted static files handle the request identically to root path,
+# while still supporting direct root access (e.g. via SSH tunnel localhost:8001).
+# Registered after gateway_middleware so it executes FIRST on incoming requests.
+_URL_PREFIXES = tuple(
+    p.strip().rstrip('/')
+    for p in os.environ.get('BAPETEN_URL_PREFIXES', '/rdi1').split(',')
+    if p.strip()
+)
+
+@app.middleware('http')
+async def subpath_prefix_middleware(request: Request, call_next):
+    path = request.scope.get('path', '')
+    if path in _URL_PREFIXES:
+        query = f"?{request.url.query}" if request.url.query else ""
+        return RedirectResponse(url=f"{path}/{query}", status_code=307)
+    for prefix in _URL_PREFIXES:
+        if path.startswith(prefix + '/'):
+            new_path = path[len(prefix):] or '/'
+            request.scope['path'] = new_path
+            if 'raw_path' in request.scope:
+                request.scope['raw_path'] = new_path.encode('latin-1')
+            break
+    return await call_next(request)
+
