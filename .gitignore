@@ -88,3 +88,8 @@ Thumbs.db
 *.swp
 *.swo
 *~
+
+# Client distribution packages with private keys
+client_package/
+*.zip
+
