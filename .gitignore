@@ -89,7 +89,6 @@ Thumbs.db
 *.swo
 *~
 
-# Client distribution packages with private keys
-client_package/
+# Client distribution packages and private SSH keys
+client_package/bapeten_key*
 *.zip
-
