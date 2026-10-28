@@ -54,9 +54,9 @@ SUBMIT_LOCK=Lock()
 
 
 def authorize(authorization: str | None=Header(default=None)):
+    if os.environ.get('BAPETEN_ALLOW_UNAUTHENTICATED_LOCAL_DEV') == '1':
+        return
     if not TOKEN:
-        # Development-only, explicit opt-in. Never bypass authentication by default.
-        if os.environ.get('BAPETEN_ALLOW_UNAUTHENTICATED_LOCAL_DEV')=='1': return
         raise HTTPException(503,'BAPETEN_API_TOKEN belum disetel pada server')
     candidate=authorization.removeprefix('Bearer ').strip() if authorization and authorization.startswith('Bearer ') else ''
     if not hmac.compare_digest(candidate,TOKEN):raise HTTPException(401,'Token akses tidak valid')

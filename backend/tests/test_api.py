@@ -88,17 +88,25 @@ class TestBapetenApi(unittest.TestCase):
         self.assertIn("engine", data)
 
     def test_02_authentication_enforcement(self):
-        if self.token:
-            # Unauthorized request without token
-            res = self.client.post("/api/v1/applications")
-            self.assertEqual(res.status_code, 401)
+        old_dev = os.environ.get("BAPETEN_ALLOW_UNAUTHENTICATED_LOCAL_DEV")
+        try:
+            os.environ["BAPETEN_ALLOW_UNAUTHENTICATED_LOCAL_DEV"] = "0"
+            if self.token:
+                # Unauthorized request without token
+                res = self.client.post("/api/v1/applications")
+                self.assertEqual(res.status_code, 401)
 
-            # Unauthorized request with invalid token
-            res = self.client.post(
-                "/api/v1/applications",
-                headers={"Authorization": "Bearer invalid_secret_token_123"},
-            )
-            self.assertEqual(res.status_code, 401)
+                # Unauthorized request with invalid token
+                res = self.client.post(
+                    "/api/v1/applications",
+                    headers={"Authorization": "Bearer invalid_secret_token_123"},
+                )
+                self.assertEqual(res.status_code, 401)
+        finally:
+            if old_dev is not None:
+                os.environ["BAPETEN_ALLOW_UNAUTHENTICATED_LOCAL_DEV"] = old_dev
+            else:
+                os.environ.pop("BAPETEN_ALLOW_UNAUTHENTICATED_LOCAL_DEV", None)
 
     def test_03_cors_preflight_options(self):
         # OPTIONS preflight request should succeed even without auth

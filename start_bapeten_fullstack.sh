@@ -101,5 +101,5 @@ if [ "$READY" -ne 1 ]; then
 fi
 printf 'Berhasil: PID %s | http://127.0.0.1:%s\n' "$PID" "$PORT"
 echo "Tunnel di laptop: ssh -L $PORT:127.0.0.1:$PORT USER@HPC"
-echo "Link browser laptop (auto-login): http://localhost:$PORT/?token=$BAPETEN_API_TOKEN"
+echo "Buka di laptop: http://localhost:$PORT/"
 echo "Log: $LOGFILE"

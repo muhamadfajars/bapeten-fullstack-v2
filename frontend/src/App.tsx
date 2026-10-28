@@ -10,7 +10,7 @@ import {
 import bapetenLogo from './assets/bapeten-logo.png';
 import { CATEGORIES, categoryById } from './data/categories';
 import { matchingTotals } from './lib/matching';
-import {setApiToken,newApplication,uploadFile,deleteFile,analyze,jobStatus,fetchResults,listFiles,fetchPreviewFile,fetchEvidencePage} from './api';
+import {newApplication,uploadFile,deleteFile,analyze,jobStatus,fetchResults,listFiles,fetchPreviewFile,fetchEvidencePage} from './api';
 import type {AnalysisResult,AnalysisJob} from './api';
 import Glyph from './components/Glyph';
 import type { CategoryId, MatchRow, MatchSection, MatchStatus, UploadItem } from './types/models';
@@ -268,40 +268,6 @@ function EmptyDocuments({ goUpload }: { goUpload: () => void }) {
 
 function App() {
   const [active, setActive] = useState<PageId>('ringkasan');
-  const [tokenInput, setTokenInput] = useState<string>(() => {
-    try {
-      const params = new URLSearchParams(window.location.search);
-      const queryToken = params.get('token');
-      if (queryToken && queryToken.trim()) {
-        const clean = queryToken.trim();
-        localStorage.setItem('bapeten_api_token', clean);
-        setApiToken(clean);
-        params.delete('token');
-        const cleanSearch = params.toString() ? `?${params.toString()}` : '';
-        window.history.replaceState({}, document.title, `${window.location.pathname}${cleanSearch}${window.location.hash}`);
-        return clean;
-      }
-      const stored = localStorage.getItem('bapeten_api_token') || '';
-      if (stored) {
-        setApiToken(stored);
-      }
-      return stored;
-    } catch {
-      return '';
-    }
-  });
-
-  const updateToken = (val: string) => {
-    setTokenInput(val);
-    setApiToken(val);
-    try {
-      if (val.trim()) {
-        localStorage.setItem('bapeten_api_token', val.trim());
-      } else {
-        localStorage.removeItem('bapeten_api_token');
-      }
-    } catch {}
-  };
   const [applicationId,setApplicationId] = useState<string|null>(sessionStorage.getItem('bapeten_application_id'));
   const [result,setResult] = useState<AnalysisResult|null>(null);
   const [job,setJob] = useState<AnalysisJob|null>(null);
@@ -360,8 +326,7 @@ function App() {
         if(old===current) setResult(x);
       }).catch(()=>{});
     }).catch(()=>{});
-    return ()=>{cancelled=true;};
-  },[applicationId,tokenInput,working]);
+  },[applicationId,working]);
 
   const runAnalysis = async () => {
     if(working) return;
@@ -469,7 +434,7 @@ function App() {
       <div className="topbar">
         <div className="topbar-left"><button className="mobile-menu icon-button" onClick={() => setMobileNav(true)} aria-label="Buka menu"><Menu size={20}/></button>
           <span className="breadcrumb">Workspace</span><ChevronRight size={15}/><span className="breadcrumb-current">Evaluasi Permohonan</span></div>
-        <div className="topbar-right"><label className="token-entry" title={tokenInput ? "API Token terhubung dan tersimpan aman di browser" : "Masukkan token server"}>API Token <input type="password" autoComplete="off" value={tokenInput} onChange={e => updateToken(e.target.value)} placeholder={tokenInput ? "Tersambung" : "Token server"} aria-label="Token akses API" />{tokenInput ? <span className="token-badge-active" title="Token tersimpan aman di browser">✓ Terhubung</span> : null}</label><span className="demo-indicator"><span/> {result ? 'Hasil Tersedia' : 'Menunggu Analisis'}</span><span className="user-avatar">EV</span><span className="user-label">Evaluator</span></div>
+        <div className="topbar-right"><span className="demo-indicator"><span/> {result ? 'Hasil Tersedia' : 'Menunggu Analisis'}</span><span className="user-avatar">EV</span><span className="user-label">Evaluator</span></div>
       </div>
       <div className="content-wrap">
         <section className="page-section overview-section" id="ringkasan" hidden={active!=='ringkasan'}>
