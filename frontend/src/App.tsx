@@ -58,8 +58,11 @@ function Sidebar({ active, navigate, open, close }: { active: PageId; navigate: 
         ))}
       </nav>
       <div className="sidebar-foot">
-        <span className="sidebar-seal"><img src={bapetenLogo} alt="" className="sidebar-seal-img" /></span>
-        <div><strong>BAPETEN AI Evaluator</strong><small>Sistem Evaluasi Dokumen</small></div>
+        <div className="sidebar-foot-brand">
+          <span className="sidebar-seal"><img src={bapetenLogo} alt="" className="sidebar-seal-img" /></span>
+          <div><strong>BAPETEN</strong><small>Asisten Evaluasi Perizinan</small></div>
+        </div>
+        <div className="sidebar-copyright">© 2026 BAPETEN</div>
       </div>
     </aside>
   </>;
@@ -523,7 +526,7 @@ function App() {
             </article>)}{!visibleDocuments.length && <p className="doc-no-results">Tidak ada dokumen yang cocok dengan pencarian.</p>}</div>}
           </div>
         </section>
-        <footer className="footer"><span>© 2026 · BAPETEN AI Evaluator — aplikasi internal (belum diaudit produksi)</span><span>Sistem Evaluasi Dokumen</span></footer>
+        <footer className="footer"><span>© 2026 BAPETEN — Asisten Evaluasi Perizinan</span><span>Badan Pengawas Tenaga Nuklir</span></footer>
       </div>
     </main>
     <DetailPanel selected={selectedDetail} close={() => setSelectedDetail(null)} openEvidence={openEvidence} openRelated={(category) => { goTo('dokumen'); announce('info', `Cari dokumen kategori ${categoryById(category)?.name} pada daftar file yang diunggah.`); }} />
