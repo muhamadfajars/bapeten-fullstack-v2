@@ -1,5 +1,10 @@
 import type { FormReference, MatchSection, CategoryId } from './types/models';
-const API_BASE = (import.meta.env.VITE_API_URL as string | undefined)?.replace(/\/$/, '') || '';
+const API_BASE = (() => {
+  const envUrl = (import.meta.env.VITE_API_URL as string | undefined)?.replace(/\/$/, '');
+  if (envUrl) return envUrl;
+  const path = window.location.pathname.replace(/\/+$/, '');
+  return path || '';
+})();
 let authToken = (() => {
   try {
     const params = new URLSearchParams(window.location.search);
