@@ -563,8 +563,8 @@ function App() {
             <SummaryCard icon={<AlertCircle size={25}/>} label="Mismatch" value={totals.mismatch} note="Perbedaan identitas yang terdeteksi" tone="red" />
           </div>
           <div className="overview-banner"><div className="overview-banner-icon"><Info size={19}/></div>
-            <p><strong>{result ? 'Hasil evaluasi dokumen tersedia.' : 'Belum ada hasil analisis.'}</strong> {result ? `${result.analyzed_documents} dokumen dianalisis; ${result.errors.length} gagal. Field REVIEW memerlukan pemeriksaan evaluator.` : 'Unggah dokumen dan klik Mulai Analisis. Statistik MATCH/REVIEW/MISMATCH tetap nol sampai ada hasil nyata.'}</p>
-            <button className="text-action" onClick={() => goTo('matching')}>Lihat contoh <ArrowRight size={15}/></button>
+            <p><strong>{result ? 'Hasil evaluasi dokumen tersedia.' : 'Belum ada hasil analisis.'}</strong> {result ? `${result.analyzed_documents} dokumen dianalisis; ${result.errors.length} gagal. Field REVIEW memerlukan pemeriksaan evaluator.` : 'Unggah dokumen melalui menu Upload Dokumen, lalu klik Mulai Analisis. Ringkasan hasil akan muncul di sini setelah analisis selesai.'}</p>
+            {result && <button className="text-action" onClick={() => goTo('matching')}>Lihat hasil analisis <ArrowRight size={15}/></button>}
           </div>
         </section>
 
