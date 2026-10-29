@@ -15,6 +15,7 @@ extraction_cache/
 label_variant_cache_*/
 tmp/
 temp/
+frontend/src/data/sample/
 
 # Databases
 *.sqlite
@@ -88,7 +89,3 @@ Thumbs.db
 *.swp
 *.swo
 *~
-
-# Client distribution packages and private SSH keys
-client_package/bapeten_key*
-*.zip

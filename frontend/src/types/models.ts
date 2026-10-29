@@ -23,6 +23,9 @@ export type UploadItem = {
   file?: File;
   serverId?: string;
   sha256?: string;
+  detectedLayer?: 1 | 2 | 0;
+  detectionReason?: string;
+  isClassifying?: boolean;
 };
 
 export type MatchRow = {
@@ -79,5 +82,5 @@ export const PERSONNEL_TYPES = [
   'Surat Izin Kerja',
   'Surat Keterangan Kerja',
   'Surat Penunjukan Tugas',
-  'Evaluasi Dosis',
+  'Evaluasi Dosis / Zero Check',
 ] as const;

@@ -139,6 +139,8 @@ def _page_ocr(path: Path, index, fraction=1.0, psm=6, clip_box=None):
             pix=page.get_pixmap(matrix=fitz.Matrix(3.0 if clip_box else 2.2,3.0 if clip_box else 2.2),
                                 clip=clip,alpha=False)
         with tempfile.TemporaryDirectory(prefix='bapeten_ocr_') as tmp:
+            output = Path(tmp) / 'crop.png'
+            pix.save(str(output))
             tess_lang = os.getenv('BAPETEN_TESS_LANG', 'ind+eng')
             run=subprocess.run(['tesseract',str(output),'stdout','--psm',str(psm),'-l',tess_lang],
                                stdin=subprocess.DEVNULL,capture_output=True,text=True,
@@ -148,7 +150,7 @@ def _page_ocr(path: Path, index, fraction=1.0, psm=6, clip_box=None):
                                    stdin=subprocess.DEVNULL,capture_output=True,text=True,
                                    timeout=25,check=False)
             return run.stdout[:30000] if run.returncode==0 else ''
-    except (ImportError,OSError,ValueError,RuntimeError,subprocess.TimeoutExpired):
+    except Exception:
         return ''
 
 

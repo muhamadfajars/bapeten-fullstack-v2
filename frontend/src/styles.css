@@ -109,7 +109,188 @@ h1 span { color: #a84951; }
 .dropzone small { font-size: 10px; color: #95a1b4; margin-top: 13px; }
 .dropzone-actions { display: flex; gap: 9px; align-items: center; justify-content: center; flex-wrap: wrap; }
 .select-wrap { position: relative; display: inline-flex; }
-.select-wrap select { appearance: none; border: 1px solid #dee3ec; color: #34435d; border-radius: 9px; height: 39px; background: #fff; width: 238px; font-size: 11px; font-weight: 700; padding: 0 28px 0 12px; outline: none; }
+/* Batch Auto-Classification Styles */
+.batch-review-section {
+  margin-top: 22px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.batch-summary-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: #fdfdfe;
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  padding: 12px 16px;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+.batch-summary-left {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.batch-summary-left h4 {
+  margin: 0;
+  font-size: 13.5px;
+  font-weight: 800;
+  color: #1e293b;
+}
+.status-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 11px;
+  font-weight: 700;
+  padding: 4px 10px;
+  border-radius: 20px;
+}
+.status-pill.success {
+  background: #ecfdf5;
+  color: #047857;
+  border: 1px solid #a7f3d0;
+}
+.status-pill.warning {
+  background: #fffbeb;
+  color: #b45309;
+  border: 1px solid #fde68a;
+}
+.status-pill.danger {
+  background: #fef2f2;
+  color: #b91c1c;
+  border: 1px solid #fecaca;
+}
+.classification-disclaimer {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  background: #fffbeb;
+  border: 1px solid #fef3c7;
+  border-left: 4px solid #f59e0b;
+  color: #92400e;
+  padding: 10px 14px;
+  border-radius: 8px;
+  font-size: 11.5px;
+  line-height: 1.5;
+  margin-top: 16px;
+}
+.classification-disclaimer svg {
+  flex-shrink: 0;
+  margin-top: 1px;
+  color: #d97706;
+}
+.classification-disclaimer strong {
+  font-weight: 750;
+  color: #78350f;
+}
+.batch-table-wrapper {
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  overflow: hidden;
+  background: #fff;
+}
+.batch-table {
+  width: 100%;
+  table-layout: fixed;
+  border-collapse: collapse;
+  font-size: 11.5px;
+}
+.batch-table th {
+  background: #f8fafc;
+  color: #64748b;
+  font-weight: 700;
+  text-align: left;
+  padding: 10px 14px;
+  border-bottom: 1px solid #e2e8f0;
+}
+.batch-table td {
+  padding: 10px 14px;
+  border-bottom: 1px solid #f1f5f9;
+  vertical-align: middle;
+}
+.batch-table tr:last-child td {
+  border-bottom: 0;
+}
+.batch-table tr:hover td {
+  background: #fafbfd;
+}
+.batch-th-doc, .batch-td-doc {
+  width: auto;
+  overflow: hidden;
+}
+.batch-th-category, .batch-td-category {
+  width: 320px;
+}
+.batch-th-action, .batch-td-action {
+  width: 50px;
+  text-align: center;
+}
+.batch-file-info {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+  width: 100%;
+}
+.batch-file-icon {
+  width: 28px !important;
+  height: 28px !important;
+  flex-shrink: 0;
+}
+.batch-file-text {
+  min-width: 0;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.batch-file-name {
+  font-weight: 700;
+  color: #1e293b;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  display: block;
+  max-width: 100%;
+}
+.batch-file-size {
+  color: #94a3b8;
+  font-size: 10.5px;
+  white-space: nowrap;
+}
+.table-category-select {
+  border: 1px solid #cbd5e1;
+  border-radius: 7px;
+  padding: 6px 10px;
+  font-size: 11.5px;
+  color: #1e293b;
+  font-weight: 600;
+  background: #fff;
+  outline: none;
+  width: 100%;
+  max-width: 320px;
+  box-sizing: border-box;
+  text-overflow: ellipsis;
+  cursor: pointer;
+}
+.table-category-select:focus {
+  border-color: #2563eb;
+  box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.12);
+}
+.table-category-select optgroup {
+  font-weight: 700;
+  color: #1e293b;
+  font-style: normal;
+}
+.table-category-select option {
+  font-weight: 500;
+  color: #334155;
+  padding: 4px;
+}
+
 .select-wrap svg { position: absolute; pointer-events: none; top: 12px; right: 10px; color: #7a879d; }
 .category-list-heading { display: flex; justify-content: space-between; align-items: center; padding: 24px 0 12px; }
 .category-list-heading h3 { margin: 0 0 4px; font-size: 14px; font-weight: 800; }
