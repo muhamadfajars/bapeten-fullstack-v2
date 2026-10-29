@@ -15,6 +15,7 @@ extraction_cache/
 label_variant_cache_*/
 tmp/
 temp/
+frontend/src/data/sample/
 
 # Databases
 *.sqlite

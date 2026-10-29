@@ -6,30 +6,58 @@ authentication and access controls before any multi-tenant production deployment
 from __future__ import annotations
 import hashlib, hmac, os, re, shutil, time
 from concurrent.futures import ThreadPoolExecutor
+from contextlib import asynccontextmanager
 from pathlib import Path
 from threading import Lock
 from fastapi import Request, FastAPI, UploadFile, File, Form, Depends, HTTPException, Header, BackgroundTasks
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, RedirectResponse
 from fastapi.middleware.cors import CORSMiddleware
 from . import storage
 from . import vpn_access
+from . import classifier
+
+# Auto-load backend/.env if running uvicorn directly without shell wrapper
+_ENV_FILE = Path(__file__).resolve().parents[1] / '.env'
+if _ENV_FILE.is_file():
+    for _line in _ENV_FILE.read_text(encoding='utf-8').splitlines():
+        _line = _line.strip()
+        if _line and not _line.startswith('#') and '=' in _line:
+            _k, _v = _line.split('=', 1)
+            _k, _v = _k.strip(), _v.strip().strip("'\"")
+            if _k and _k not in os.environ:
+                os.environ[_k] = _v
 
 CATEGORIES={'formulir','proteksi','perawatan','manajemen','teknis','personel','tld','spesifikasi','label','impor','kesesuaian','fungsi','paparan','kebocoran'}
 EXT={'.pdf','.png','.jpg','.jpeg','.bmp','.webp','.tif','.tiff','.docx'}
 MAX_FILE=int(os.environ.get('BAPETEN_MAX_FILE_MB','40'))*1024*1024
 MAX_DOCS=int(os.environ.get('BAPETEN_MAX_DOCUMENTS','120'))
 TOKEN=os.environ.get('BAPETEN_API_TOKEN','')
-app=FastAPI(title='BAPETEN AI Evaluator API',version='0.2.0',docs_url=None,redoc_url=None)
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    storage.init_db()
+    if vpn_access.enabled():
+        vpn_access.init_vpn_db()
+    storage.recover_stale_jobs()
+    yield
+
+app=FastAPI(title='BAPETEN AI Evaluator API',version='0.2.0',docs_url=None,redoc_url=None,lifespan=lifespan)
 origins=[v.strip() for v in os.environ.get('BAPETEN_CORS_ORIGINS','http://localhost:5173,http://127.0.0.1:5173').split(',') if v.strip()]
-app.add_middleware(CORSMiddleware,allow_origins=origins,allow_credentials=False,allow_methods=['GET','POST','DELETE'],allow_headers=['Authorization','Content-Type'])
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=origins,
+    allow_credentials=False,
+    allow_methods=['GET','POST','DELETE','OPTIONS'],
+    allow_headers=['Authorization','Content-Type','X-Bapeten-Vpn-User']
+)
 POOL=ThreadPoolExecutor(max_workers=max(1,int(os.environ.get('BAPETEN_ANALYSIS_WORKERS','1'))))
 SUBMIT_LOCK=Lock()
 
 
 def authorize(authorization: str | None=Header(default=None)):
+    if os.environ.get('BAPETEN_ALLOW_UNAUTHENTICATED_LOCAL_DEV') == '1':
+        return
     if not TOKEN:
-        # Development-only, explicit opt-in. Never bypass authentication by default.
-        if os.environ.get('BAPETEN_ALLOW_UNAUTHENTICATED_LOCAL_DEV')=='1': return
         raise HTTPException(503,'BAPETEN_API_TOKEN belum disetel pada server')
     candidate=authorization.removeprefix('Bearer ').strip() if authorization and authorization.startswith('Bearer ') else ''
     if not hmac.compare_digest(candidate,TOKEN):raise HTTPException(401,'Token akses tidak valid')
@@ -58,15 +86,15 @@ def list_documents(aid:str):
 
 
 @app.post('/api/v1/applications/{aid}/documents',dependencies=[Depends(authorize)])
-async def upload(aid:str,category:str=Form(...),subtype:str|None=Form(None),file:UploadFile=File(...)):
+async def upload(aid:str,category:str|None=Form(None),subtype:str|None=Form(None),file:UploadFile=File(...)):
     must_app(aid)
-    if category not in CATEGORIES:raise HTTPException(422,'Kategori tidak dikenal')
+    j=storage.get_job_latest_running(aid) if hasattr(storage,'get_job_latest_running') else None
+    if j:raise HTTPException(409,'Tidak dapat mengunggah saat analisis aktif')
     if len(storage.documents(aid))>=MAX_DOCS:raise HTTPException(413,'Batas jumlah dokumen tercapai')
     filename=Path(file.filename or '').name[:180]
     ext=Path(filename).suffix.lower()
     if not filename or ext not in EXT:raise HTTPException(415,'Format dokumen tidak didukung')
-    if category=='formulir' and ext!='.pdf':raise HTTPException(415,'Formulir acuan saat ini harus PDF')
-    if category=='personel' and not subtype:raise HTTPException(422,'Pilih subjenis dokumen personel')
+
     temp_name=storage.make_id()+ext
     folder=storage.ROOT/'uploads'/aid;folder.mkdir(parents=True,exist_ok=True,mode=0o700)
     target=folder/temp_name
@@ -82,12 +110,51 @@ async def upload(aid:str,category:str=Form(...),subtype:str|None=Form(None),file
             head=src.read(16)
         if ext=='.pdf' and not head.startswith(b'%PDF-'):raise HTTPException(415,'File bukan PDF valid')
         if ext=='.docx' and not head.startswith(b'PK'):raise HTTPException(415,'File bukan DOCX valid')
+
+        # Auto-classify if category is missing, empty, or 'auto'
+        if not category or category.strip() == '' or category == 'auto':
+            with target.open('rb') as src:
+                bytes_content = src.read()
+            detected = classifier.classify_document(filename, bytes_content)
+            if detected['category'] == 'unknown':
+                raise HTTPException(422, f'Kategori dokumen "{filename}" tidak terdeteksi otomatis. Silakan tentukan kategori dokumen.')
+            category = detected['category']
+            if not subtype:
+                subtype = detected.get('subtype')
+
+        if category not in CATEGORIES:raise HTTPException(422,'Kategori tidak dikenal')
+        if category=='formulir' and ext!='.pdf':raise HTTPException(415,'Formulir acuan saat ini harus PDF')
+        if category=='personel' and not subtype:raise HTTPException(422,'Pilih subjenis dokumen personel')
+
         # Do not deduplicate different categories or uploads silently.
         did=storage.add_document(aid,category,subtype,filename,size,digest.hexdigest(),temp_name)
         return {'document':next(d for d in storage.documents(aid) if d['id']==did)}
     except BaseException:
         target.unlink(missing_ok=True);raise
     finally:await file.close()
+
+
+@app.post('/api/v1/classify', dependencies=[Depends(authorize)])
+async def classify_file(file: UploadFile | None = File(None), filename: str | None = Form(None)):
+    name = (file.filename if file else filename) or ''
+    if not name:
+        raise HTTPException(422, 'Nama berkas harus disertakan')
+    content = None
+    if file:
+        content = await file.read()
+    res = classifier.classify_document(name, content)
+    return res
+
+
+@app.post('/api/v1/classify-batch', dependencies=[Depends(authorize)])
+async def classify_batch(files: list[UploadFile] = File(...)):
+    results = []
+    for f in files:
+        name = f.filename or ''
+        content = await f.read()
+        res = classifier.classify_document(name, content)
+        results.append(res)
+    return {'results': results}
 
 
 @app.delete('/api/v1/applications/{aid}/documents/{did}',dependencies=[Depends(authorize)])
@@ -175,7 +242,8 @@ def _run(jid,aid):
 def start_analysis(aid:str):
     must_app(aid)
     docs=storage.documents(aid)
-    if not any(d['category']=='formulir' for d in docs):raise HTTPException(422,'Unggah Formulir Permohonan PDF dahulu')
+    forms=[d for d in docs if d['category']=='formulir']
+    if len(forms)!=1:raise HTTPException(422,'Wajib tepat satu Formulir Permohonan PDF untuk acuan analisis')
     with SUBMIT_LOCK:
         with storage.db() as con:
             active=storage.row(con,"SELECT id,status FROM jobs WHERE app_id=? AND status IN ('queued','running') ORDER BY created DESC LIMIT 1",(aid,))
@@ -213,3 +281,31 @@ if _frontend_dist:
 
 # VPN reverse proxy boundary. Must register before ASGI application starts.
 app.middleware('http')(vpn_access.gateway_middleware)
+
+# Reverse proxy subpath middleware.
+# When deployed behind Nginx (e.g. http://192.168.30.75/rdi1/), Nginx forwards
+# requests with the /rdi1 prefix intact. This middleware strips the prefix so
+# FastAPI and mounted static files handle the request identically to root path,
+# while still supporting direct root access (e.g. via SSH tunnel localhost:8001).
+# Registered after gateway_middleware so it executes FIRST on incoming requests.
+_URL_PREFIXES = tuple(
+    p.strip().rstrip('/')
+    for p in os.environ.get('BAPETEN_URL_PREFIXES', '/rdi1').split(',')
+    if p.strip()
+)
+
+@app.middleware('http')
+async def subpath_prefix_middleware(request: Request, call_next):
+    path = request.scope.get('path', '')
+    if path in _URL_PREFIXES:
+        query = f"?{request.url.query}" if request.url.query else ""
+        return RedirectResponse(url=f"{path}/{query}", status_code=307)
+    for prefix in _URL_PREFIXES:
+        if path.startswith(prefix + '/'):
+            new_path = path[len(prefix):] or '/'
+            request.scope['path'] = new_path
+            if 'raw_path' in request.scope:
+                request.scope['raw_path'] = new_path.encode('latin-1')
+            break
+    return await call_next(request)
+

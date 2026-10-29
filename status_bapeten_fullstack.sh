@@ -8,6 +8,7 @@ PID="$(cat "$PIDFILE")"
 if [[ "$PID" =~ ^[0-9]+$ ]] && kill -0 "$PID" 2>/dev/null; then
   echo "Status: RUNNING (PID $PID)"
   echo "URL HPC: http://127.0.0.1:$PORT"
+  echo "Buka di laptop: http://localhost:$PORT/"
   if command -v curl >/dev/null 2>&1; then
     curl -fsS --max-time 3 "http://127.0.0.1:$PORT/api/v1/health" || true
     echo

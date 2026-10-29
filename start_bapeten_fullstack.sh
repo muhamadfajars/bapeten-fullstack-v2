@@ -100,6 +100,6 @@ if [ "$READY" -ne 1 ]; then
   exit 1
 fi
 printf 'Berhasil: PID %s | http://127.0.0.1:%s\n' "$PID" "$PORT"
-echo "Tunnel di laptop: ssh -L $PORT:127.0.0.1:$PORT USER@HPC"
+echo "Akses langsung pegawai (LAN / VPN kantor): http://192.168.30.75/rdi1/"
+echo "Akses pribadi via SSH Tunnel: ssh -L $PORT:127.0.0.1:$PORT USER@HPC -> http://localhost:$PORT/"
 echo "Log: $LOGFILE"
-echo 'Token akses: cek backend/.env secara privat (jangan dibagikan).'

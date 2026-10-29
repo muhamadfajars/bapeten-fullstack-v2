@@ -1,16 +1,21 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import type { ChangeEvent, DragEvent, ReactNode } from 'react';
+import type { DragEvent, ReactNode } from 'react';
 import {
   Activity, AlertCircle, ArrowRight, CalendarDays, Check, CheckCircle2,
   ChevronDown, ChevronRight, CircleHelp, CloudUpload,
   ExternalLink, FileCheck2, FileClock, FileText, FolderOpen, HardDriveUpload,
   Home, Info, Layers3, LayoutDashboard, Menu,
-  Search, ShieldCheck, Trash2, UploadCloud, UsersRound, X,
+  Search, Trash2, UploadCloud, UsersRound, X,
 } from 'lucide-react';
+import bapetenLogo from './assets/bapeten-logo.png';
 import { CATEGORIES, categoryById } from './data/categories';
 import { matchingTotals } from './lib/matching';
-import {setApiToken,newApplication,uploadFile,deleteFile,analyze,jobStatus,fetchResults,listFiles,fetchFile,fetchEvidencePage} from './api';
-import type {AnalysisResult,AnalysisJob} from './api';
+import {
+  newApplication, uploadFile, deleteFile, analyze, jobStatus, fetchResults, listFiles,
+  fetchPreviewFile, fetchEvidencePage
+} from './api';
+import type { AnalysisResult, AnalysisJob } from './api';
+import { classifyFile, classifyByFilename } from './lib/classifier';
 import Glyph from './components/Glyph';
 import type { CategoryId, MatchRow, MatchSection, MatchStatus, UploadItem } from './types/models';
 import { PERSONNEL_TYPES } from './types/models';
@@ -36,7 +41,7 @@ const NAV: Array<{ id: PageId; label: string; icon: typeof Home }> = [
 function Brand() {
   return (
     <div className="brand-lockup">
-      <span className="crest" aria-hidden="true"><ShieldCheck size={28} strokeWidth={1.8} /></span>
+      <img src={bapetenLogo} alt="Logo BAPETEN" className="brand-logo" />
       <div><div className="brand-name">BAPETEN</div><div className="brand-description">Badan Pengawas Tenaga Nuklir</div></div>
     </div>
   );
@@ -57,8 +62,11 @@ function Sidebar({ active, navigate, open, close }: { active: PageId; navigate: 
         ))}
       </nav>
       <div className="sidebar-foot">
-        <span className="sidebar-seal"><ShieldCheck size={19} /></span>
-        <div><strong>BAPETEN AI Evaluator</strong><small>Sistem Evaluasi Dokumen</small></div>
+        <div className="sidebar-foot-brand">
+          <span className="sidebar-seal"><img src={bapetenLogo} alt="" className="sidebar-seal-img" /></span>
+          <div><strong>BAPETEN</strong><small>Asisten Evaluasi Perizinan</small></div>
+        </div>
+        <div className="sidebar-copyright">© 2026 BAPETEN — Asisten Evaluasi Perizinan</div>
       </div>
     </aside>
   </>;
@@ -86,7 +94,7 @@ function rowMatchesFilter(row: MatchRow, filter: Filter, query: string): boolean
 
 function matchingSectionTitle(section: MatchSection): string {
   // Backend supplies a controlled subtype label, never the uploaded filename.
-  if (section.category === 'personel' && /^Dokumen Personel - (SIP|SIB|Surat Perintah|Sertifikat Kompetensi|Surat Izin Kerja|Surat Keterangan Kerja|Surat Penunjukan Tugas|Evaluasi Dosis)$/.test(section.name)) {
+  if (section.category === 'personel' && /^Dokumen Personel - (SIP|SIB|Surat Perintah|Sertifikat Kompetensi|Surat Izin Kerja|Surat Keterangan Kerja|Surat Penunjukan Tugas|Evaluasi Dosis|Evaluasi Dosis \/ Zero Check)$/.test(section.name)) {
     return section.name;
   }
   return categoryById(section.category)?.name ?? 'Dokumen';
@@ -248,7 +256,7 @@ function DetailPanel({ selected, close, openRelated, openEvidence }: { selected:
       <DataPair label="Acuan dari formulir" value={row.expected} />
       <DataPair label="Hasil pembacaan dokumen" value={row.observed} />
       <DataPair label="Kemiripan karakter / skor field" value={row.score === null ? 'Tidak tersedia' : `${row.score.toFixed(1)}%`} />
-      <DataPair label="Halaman bukti" value={row.page ? `Halaman ${row.page}` : 'Tidak dicatat pada hasil backend'} />
+      <DataPair label="Halaman bukti" value={row.page ? `Halaman ${row.page}` : 'Tidak dicatat pada hasil pemeriksaan'} />
       {row.note && <div className="detail-note"><Info size={17} />{row.note}</div>}
       <div className="detail-divider" />
       {row.document_id && row.detail?.type !== 'approval' && <button className="button button-soft button-full" type="button" onClick={() => openEvidence(row.document_id!,row.page)}><ExternalLink size={16}/> Buka PDF sumber {row.page ? `· Halaman ${row.page}` : ''}</button>}
@@ -267,7 +275,6 @@ function EmptyDocuments({ goUpload }: { goUpload: () => void }) {
 
 function App() {
   const [active, setActive] = useState<PageId>('ringkasan');
-  const [tokenInput,setTokenInput] = useState('');
   const [applicationId,setApplicationId] = useState<string|null>(sessionStorage.getItem('bapeten_application_id'));
   const [result,setResult] = useState<AnalysisResult|null>(null);
   const [job,setJob] = useState<AnalysisJob|null>(null);
@@ -278,7 +285,6 @@ function App() {
   const displaySections = result?.matching_sections ?? [];
   const [mobileNav, setMobileNav] = useState(false);
   const [items, setItems] = useState<UploadItem[]>([]);
-  const [selectedCategory, setSelectedCategory] = useState<CategoryId | ''>('');
   const [expandedUpload, setExpandedUpload] = useState<CategoryId | null>(null);
   const [dragged, setDragged] = useState(false);
   const [toast, setToast] = useState<Toast>(null);
@@ -294,6 +300,7 @@ function App() {
   const visibleMatchingSections = useMemo(() => displaySections.filter(section =>
     section.rows.some(row => rowMatchesFilter(row, filter, query))), [displaySections, filter, query]);
   const categoryCount = useMemo(() => new Set(items.map((f) => f.category)).size, [items]);
+  const formCount = useMemo(() => items.filter((f) => f.category === 'formulir').length, [items]);
 
   useEffect(() => () => { if (toastRef.current !== null) window.clearTimeout(toastRef.current); }, []);
   const announce = useCallback((tone: 'success' | 'warning' | 'info', message: string) => {
@@ -309,13 +316,15 @@ function App() {
 
 
   useEffect(() => {
-    if(!applicationId)return;
+    if(!applicationId || working)return;
     let cancelled=false;
     listFiles(applicationId).then((r)=>{
       if(cancelled)return;
       setItems(old=>{
-        const ids=new Set(old.filter(f=>f.serverId).map(f=>f.serverId));
-        return [...old,...r.documents.filter(d=>!ids.has(d.id)).map(d=>({id:d.id,serverId:d.id,name:d.filename,size:d.size,category:d.category,subtype:d.subtype,sha256:d.sha256,addedAt:new Date(d.uploaded*1000).toISOString()}))];
+        const existingServerIds=new Set(old.filter(f=>f.serverId).map(f=>f.serverId));
+        const existingKeys=new Set(old.map(f=>`${f.category}:${f.name}:${f.size}`));
+        const newDocs=r.documents.filter(d=>!existingServerIds.has(d.id) && !existingKeys.has(`${d.category}:${d.filename}:${d.size}`));
+        return [...old,...newDocs.map(d=>({id:d.id,serverId:d.id,name:d.filename,size:d.size,category:d.category,subtype:d.subtype,sha256:d.sha256,addedAt:new Date(d.uploaded*1000).toISOString()}))];
       });
       fetchResults(applicationId).then(x=>{
         if(cancelled)return;
@@ -324,8 +333,7 @@ function App() {
         if(old===current) setResult(x);
       }).catch(()=>{});
     }).catch(()=>{});
-    return ()=>{cancelled=true;};
-  },[applicationId,tokenInput]);
+  },[applicationId,working]);
 
   const runAnalysis = async () => {
     if(working) return;
@@ -355,11 +363,11 @@ function App() {
         if(next.status==='failed')throw new Error(next.error || 'Proses analisis gagal');
         if(next.status==='completed'){completed=true;break;}
       }
-      if(!completed)throw new Error('Waktu menunggu analisis habis. Periksa status backend.');
+      if(!completed)throw new Error('Waktu proses analisis melebihi batas. Silakan coba kembali.');
       const analyzed=await fetchResults(aid);
       setResult(analyzed);
       if(analyzed.errors?.length)announce('warning',`${analyzed.errors.length} dokumen gagal dianalisis. Lihat rincian pada halaman Hasil Matching.`);
-      else announce('success','Analisis selesai. Hasil ditampilkan dari backend Python.');
+      else announce('success','Analisis selesai. Hasil verifikasi dokumen berhasil diperbarui.');
     } catch(e) {
       const message=e instanceof Error?e.message:'Gagal menjalankan analisis';
       setBackendError(message);announce('warning',message);
@@ -378,21 +386,127 @@ function App() {
     setItems((old) => {
       const next = [...old];
       for (const file of valid) {
-        const duplicate = next.some((item) => item.category === category && item.name === file.name && item.size === file.size && item.file?.lastModified === file.lastModified);
-        if (!duplicate) { next.push({ id: ID(), name: file.name, size: file.size, category, subtype, addedAt: new Date().toISOString(), file }); }
+        const duplicate = next.some((item) => item.category === category && item.name === file.name && item.size === file.size);
+        if (!duplicate) {
+          next.push({
+            id: ID(),
+            name: file.name,
+            size: file.size,
+            category,
+            subtype,
+            detectedLayer: 1,
+            detectionReason: 'Ditambahkan manual ke kategori',
+            addedAt: new Date().toISOString(),
+            file,
+          });
+        }
       }
       return next;
     });
-    // React batches the updater. Announcements are intentionally not used as proof of server upload.
     if (invalid) announce('warning', `${invalid} file ditolak. Gunakan PDF/gambar/DOCX, maksimal 40 MB per file.`);
-    else announce('success', `File dipilih untuk kategori ${categoryById(category)?.name}. Klik Mulai Analisis untuk mengirim ke backend.`);
+    else announce('success', `File ditambahkan untuk kategori ${categoryById(category)?.name}.`);
   }, [announce]);
-  const handleGlobalFiles = (files: FileList | File[] | null) => {
-    if (!selectedCategory) { announce('warning', 'Pilih kategori dokumen terlebih dahulu agar file tidak salah klasifikasi.'); return; }
-    if(selectedCategory==='personel'){announce('warning','Untuk dokumen personel, pilih subjenis di dalam kategori Dokumen Personel.');setExpandedUpload('personel');return;}
-    addFiles(selectedCategory, files);
+
+  const handleBatchFiles = useCallback(async (files: FileList | File[] | null) => {
+    if (!files || !files.length) return;
+    const incoming = Array.from(files);
+    const valid = incoming.filter((f) => SUPPORTED_EXTENSIONS.has(f.name.split('.').pop()?.toLowerCase() ?? '') && f.size <= MAX_FILE && f.size > 0);
+    const invalid = incoming.length - valid.length;
+    setResult(null);
+
+    const newItems: UploadItem[] = [];
+    const pendingLayer2: { item: UploadItem; file: File }[] = [];
+
+    for (const file of valid) {
+      const duplicate = items.some((item) => item.name === file.name && item.size === file.size);
+      if (duplicate) continue;
+
+      const l1 = classifyByFilename(file.name);
+      if (l1 && l1.category !== 'unknown') {
+        newItems.push({
+          id: ID(),
+          name: file.name,
+          size: file.size,
+          category: l1.category,
+          subtype: l1.subtype,
+          detectedLayer: 1,
+          detectionReason: l1.reason,
+          isClassifying: false,
+          addedAt: new Date().toISOString(),
+          file,
+        });
+      } else {
+        const item: UploadItem = {
+          id: ID(),
+          name: file.name,
+          size: file.size,
+          category: 'teknis',
+          detectedLayer: 0,
+          detectionReason: 'Menganalisis isi dokumen (Layer 2)...',
+          isClassifying: true,
+          addedAt: new Date().toISOString(),
+          file,
+        };
+        newItems.push(item);
+        pendingLayer2.push({ item, file });
+      }
+    }
+
+    if (!newItems.length) {
+      if (invalid) announce('warning', `${invalid} file ditolak. Format tidak didukung atau melebihi 40 MB.`);
+      return;
+    }
+
+    setItems((old) => [...old, ...newItems]);
+    announce('success', `${newItems.length} berkas ditambahkan dan otomatis terklasifikasi.`);
+
+    // Trigger Layer 2 for pending items in background
+    for (const { item, file } of pendingLayer2) {
+      classifyFile(file).then((res) => {
+        setItems((current) => current.map((it) => {
+          if (it.id !== item.id) return it;
+          return {
+            ...it,
+            category: (res.category !== 'unknown' ? res.category : it.category) as CategoryId,
+            subtype: res.subtype || it.subtype,
+            detectedLayer: res.layer,
+            detectionReason: res.reason,
+            isClassifying: false,
+          };
+        }));
+      }).catch(() => {
+        setItems((current) => current.map((it) => it.id === item.id ? { ...it, isClassifying: false, detectionReason: 'Perlu konfirmasi kategori manual' } : it));
+      });
+    }
+  }, [items, announce]);
+
+  const updateItemCategory = (id: string, category: CategoryId, subtype?: string) => {
+    setItems((old) => old.map((it) => {
+      if (it.id !== id) return it;
+      const requiresSubtype = categoryById(category)?.requiresSubtype;
+      const actualSubtype = requiresSubtype ? (subtype || it.subtype || PERSONNEL_TYPES[0]) : undefined;
+      return { ...it, category, subtype: actualSubtype, detectedLayer: undefined, detectionReason: 'Dipilih manual oleh evaluator' };
+    }));
   };
-  const onDrop = (event: DragEvent<HTMLDivElement>) => { event.preventDefault(); setDragged(false); handleGlobalFiles(event.dataTransfer.files); };
+
+  const clearAllFiles = () => {
+    if (!items.length) return;
+    if (!window.confirm(`Hapus semua ${items.length} dokumen dari permohonan ini?`)) return;
+    items.forEach((item) => {
+      if (item.serverId && applicationId) {
+        deleteFile(applicationId, item.serverId).catch(() => {});
+      }
+    });
+    setItems([]);
+    setResult(null);
+    announce('info', 'Semua berkas dihapus dari permohonan.');
+  };
+
+  const onDrop = (event: DragEvent<HTMLDivElement>) => {
+    event.preventDefault();
+    setDragged(false);
+    handleBatchFiles(event.dataTransfer.files);
+  };
   const removeFile = (id: string) => {
     const item=items.find((x)=>x.id===id);
     if(!item || working)return;
@@ -403,7 +517,7 @@ function App() {
   const openEvidence = (documentId:string,page?:number) => {
     if(!applicationId)return;
     const win=window.open('about:blank','_blank');
-    fetchFile(applicationId,documentId).then((blob)=>{
+    fetchPreviewFile(applicationId,documentId).then((blob)=>{
       const url=URL.createObjectURL(blob);
       if(win)win.location.href=url+(page?`#page=${page}`:'');
       else window.open(url+(page?`#page=${page}`:''),'_blank');
@@ -414,7 +528,7 @@ function App() {
     if(!file){
       if(!applicationId || !serverId){announce('warning','File belum tersedia di server.');return;}
       const win=window.open('about:blank','_blank');
-      fetchFile(applicationId,serverId).then((blob)=>{
+      fetchPreviewFile(applicationId,serverId).then((blob)=>{
         const uri=URL.createObjectURL(blob);
         if(win)win.location.href=uri;else window.open(uri,'_blank');
         window.setTimeout(()=>URL.revokeObjectURL(uri),120000);
@@ -433,7 +547,7 @@ function App() {
       <div className="topbar">
         <div className="topbar-left"><button className="mobile-menu icon-button" onClick={() => setMobileNav(true)} aria-label="Buka menu"><Menu size={20}/></button>
           <span className="breadcrumb">Workspace</span><ChevronRight size={15}/><span className="breadcrumb-current">Evaluasi Permohonan</span></div>
-        <div className="topbar-right"><label className="token-entry">API Token <input type="password" autoComplete="off" value={tokenInput} onChange={e=>{setTokenInput(e.target.value);setApiToken(e.target.value);}} placeholder="Token server" aria-label="Token akses API" /></label><span className="demo-indicator"><span/> {result ? 'Hasil Tersedia' : 'Menunggu Analisis'}</span><span className="user-avatar">EV</span><span className="user-label">Evaluator</span></div>
+        <div className="topbar-right"><span className="demo-indicator"><span/> {result ? 'Hasil Tersedia' : 'Menunggu Analisis'}</span><span className="user-avatar">EV</span><span className="user-label">Evaluator</span></div>
       </div>
       <div className="content-wrap">
         <section className="page-section overview-section" id="ringkasan" hidden={active!=='ringkasan'}>
@@ -449,25 +563,188 @@ function App() {
             <SummaryCard icon={<AlertCircle size={25}/>} label="Mismatch" value={totals.mismatch} note="Perbedaan identitas yang terdeteksi" tone="red" />
           </div>
           <div className="overview-banner"><div className="overview-banner-icon"><Info size={19}/></div>
-            <p><strong>{result ? 'Analisis berasal dari backend.' : 'Belum ada hasil analisis.'}</strong> {result ? `${result.analyzed_documents} dokumen dianalisis; ${result.errors.length} gagal. Field REVIEW memerlukan pemeriksaan evaluator.` : 'Unggah dokumen dan klik Mulai Analisis. Statistik MATCH/REVIEW/MISMATCH tetap nol sampai ada hasil nyata.'}</p>
+            <p><strong>{result ? 'Hasil evaluasi dokumen tersedia.' : 'Belum ada hasil analisis.'}</strong> {result ? `${result.analyzed_documents} dokumen dianalisis; ${result.errors.length} gagal. Field REVIEW memerlukan pemeriksaan evaluator.` : 'Unggah dokumen dan klik Mulai Analisis. Statistik MATCH/REVIEW/MISMATCH tetap nol sampai ada hasil nyata.'}</p>
             <button className="text-action" onClick={() => goTo('matching')}>Lihat contoh <ArrowRight size={15}/></button>
           </div>
         </section>
 
         <section className="page-section" id="upload" hidden={active!=='upload'}>
-          <SectionHeading eyebrow="LANGKAH 01" title="Upload Dokumen" description="Tambahkan dokumen sesuai kategori persyaratan permohonan. Pilih kategori sebelum drag & drop." action={<span className="tiny-counter">{items.length} dokumen dipilih</span>} />
+          <SectionHeading
+            eyebrow="LANGKAH 01"
+            title="Upload Dokumen Permohonan"
+            description="Unggah semua dokumen permohonan sekaligus (batch). Sistem otomatis mengklasifikasikan dokumen ke kategori yang sesuai."
+            action={<span className="tiny-counter">{items.length} dokumen dipilih</span>}
+          />
           <div className="surface upload-surface">
-            <div className={`dropzone ${dragged ? 'drag-active' : ''}`} onDragOver={(e) => { e.preventDefault(); setDragged(true); }} onDragLeave={(e) => { e.preventDefault(); setDragged(false); }} onDrop={onDrop}>
-              <div className="dropzone-icon"><CloudUpload size={33}/></div><h3>Seret dan lepas file di sini</h3><p>atau pilih kategori, lalu klik tombol untuk memilih file</p>
-              <div className="dropzone-actions"><label className="select-wrap"><span className="sr-only">Kategori unggahan</span><select value={selectedCategory} onChange={(e: ChangeEvent<HTMLSelectElement>) => setSelectedCategory(e.target.value as CategoryId | '')}>
-                <option value="">Pilih kategori dokumen...</option>{CATEGORIES.map((c) => <option value={c.id} key={c.id}>{c.name}</option>)}
-              </select><ChevronDown size={16}/></label><button className="button button-primary" onClick={() => { if (!selectedCategory) { announce('warning', 'Pilih kategori dokumen dahulu.'); return; } globalInput.current?.click(); }}><UploadCloud size={17}/> Pilih File</button></div>
-              <input ref={globalInput} type="file" multiple accept=".pdf,.jpg,.jpeg,.png,.bmp,.webp,.tif,.tiff,.docx" hidden onChange={(event) => { handleGlobalFiles(event.target.files); event.target.value = ''; }}/>
-              <small>PDF, JPG, PNG, BMP, WEBP, TIFF, DOCX · maks. 40 MB/file · klik Mulai Analisis untuk mengirim ke server</small>
+            <div
+              className={`dropzone ${dragged ? 'drag-active' : ''}`}
+              onDragOver={(e) => { e.preventDefault(); setDragged(true); }}
+              onDragLeave={(e) => { e.preventDefault(); setDragged(false); }}
+              onDrop={onDrop}
+            >
+              <div className="dropzone-icon"><CloudUpload size={33}/></div>
+              <h3>Tarik dan letakkan seluruh berkas permohonan di sini</h3>
+              <p>Sistem otomatis mengenali dan mengelompokkan dokumen ke kategori persyaratan yang sesuai</p>
+              <div className="dropzone-actions">
+                <button className="button button-primary" type="button" onClick={() => globalInput.current?.click()}>
+                  <UploadCloud size={17}/> Pilih Berkas dari Komputer
+                </button>
+              </div>
+              <input
+                ref={globalInput}
+                type="file"
+                multiple
+                accept=".pdf,.jpg,.jpeg,.png,.bmp,.webp,.tif,.tiff,.docx"
+                hidden
+                onChange={(event) => { handleBatchFiles(event.target.files); event.target.value = ''; }}
+              />
+              <small>Mendukung PDF, JPG, PNG, BMP, WEBP, TIFF, DOCX · Maks. 40 MB/file</small>
             </div>
-            <div className="analysis-action-bar"><div><strong>Jalankan Analisis Dokumen</strong><small>File dikirim ke server, diproses dalam antrean, dan hasilnya ditampilkan di halaman Hasil Matching.</small></div><button className="button button-primary" type="button" disabled={working} onClick={runAnalysis}><Activity size={17}/>{working ? `Memproses... ${syncCount ? `unggah ${syncCount}` : `${job?.progress ?? 0}%`}` : 'Mulai Analisis'}</button></div>
-            <div className="category-list-heading"><div><h3>Kategori Dokumen</h3></div><span>{categoryCount}/{CATEGORIES.length} kategori</span></div>
-            <div className="categories-list">{CATEGORIES.map((c) => <UploadCategoryRow key={c.id} id={c.id} files={items} onSelect={addFiles} remove={removeFile} active={expandedUpload === c.id} changeActive={setExpandedUpload} />)}</div>
+
+            {items.length > 0 && (
+              <div className="batch-review-section">
+                <div className="batch-summary-header">
+                  <div className="batch-summary-left">
+                    <h4>Daftar Dokumen Terklasifikasi ({items.length})</h4>
+                    {formCount === 1 ? (
+                      <span className="status-pill success"><CheckCircle2 size={14} /> Formulir Permohonan Siap</span>
+                    ) : formCount === 0 ? (
+                      <span className="status-pill danger"><AlertCircle size={14} /> Wajib 1 Formulir Permohonan PDF</span>
+                    ) : (
+                      <span className="status-pill warning"><AlertCircle size={14} /> Terdeteksi {formCount} Formulir (Wajib tepat 1)</span>
+                    )}
+                    <span className="tiny-counter">{categoryCount} dari {CATEGORIES.length} kategori terisi</span>
+                  </div>
+                  <button className="button button-soft button-sm" type="button" onClick={clearAllFiles}>
+                    <Trash2 size={14} /> Kosongkan Semua
+                  </button>
+                </div>
+
+                <div className="batch-table-wrapper">
+                  <div className="table-scroll">
+                    <table className="batch-table">
+                      <thead>
+                        <tr>
+                          <th className="batch-th-doc">Dokumen</th>
+                          <th className="batch-th-category">Kategori Dokumen</th>
+                          <th className="batch-th-action">Aksi</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {items.map((item) => {
+                          const currentVal = item.category === 'personel'
+                            ? `personel:${item.subtype || PERSONNEL_TYPES[0]}`
+                            : item.category;
+
+                          const isCustomSubtype = item.category === 'personel' &&
+                            Boolean(item.subtype) &&
+                            !(PERSONNEL_TYPES as readonly string[]).includes(item.subtype!);
+
+                          return (
+                            <tr key={item.id}>
+                              <td className="batch-td-doc">
+                                <div className="batch-file-info">
+                                  <span className={`category-icon category-${item.category} batch-file-icon`}>
+                                    <Glyph name={categoryById(item.category)?.icon ?? 'file'} />
+                                  </span>
+                                  <div className="batch-file-text">
+                                    <div className="batch-file-name" title={item.name}>{item.name}</div>
+                                    <span className="batch-file-size">{sizeLabel(item.size)}</span>
+                                  </div>
+                                </div>
+                              </td>
+                              <td className="batch-td-category">
+                                <select
+                                  className="table-category-select"
+                                  value={currentVal}
+                                  onChange={(e) => {
+                                    const val = e.target.value;
+                                    if (val.startsWith('personel:')) {
+                                      updateItemCategory(item.id, 'personel', val.slice('personel:'.length));
+                                    } else {
+                                      updateItemCategory(item.id, val as CategoryId);
+                                    }
+                                  }}
+                                >
+                                  {CATEGORIES.map((c) => {
+                                    if (c.id === 'personel') {
+                                      return (
+                                        <optgroup key="personel-group" label="Dokumen Personel">
+                                          {PERSONNEL_TYPES.map((t) => (
+                                            <option key={`personel:${t}`} value={`personel:${t}`}>
+                                              Personel: {t}
+                                            </option>
+                                          ))}
+                                          {isCustomSubtype && (
+                                            <option key={`personel:${item.subtype}`} value={`personel:${item.subtype}`}>
+                                              Personel: {item.subtype}
+                                            </option>
+                                          )}
+                                        </optgroup>
+                                      );
+                                    }
+                                    return (
+                                      <option key={c.id} value={c.id}>{c.name}</option>
+                                    );
+                                  })}
+                                </select>
+                              </td>
+                              <td className="batch-td-action">
+                                <button
+                                  className="icon-button delete-icon"
+                                  type="button"
+                                  onClick={() => removeFile(item.id)}
+                                  aria-label={`Hapus ${item.name}`}
+                                  title="Hapus berkas"
+                                >
+                                  <Trash2 size={16} />
+                                </button>
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {items.length > 0 && (
+              <div className="classification-disclaimer">
+                <AlertCircle size={16} />
+                <span>
+                  <strong>Catatan Evaluator:</strong> Harap periksa kembali kesesuaian kategori dokumen sebelum analisis dijalankan.
+                </span>
+              </div>
+            )}
+
+            <div className="analysis-action-bar">
+              <div>
+                <strong>Jalankan Analisis Dokumen</strong>
+                <small>Berkas akan dianalisis secara otomatis sesuai kategorinya dan bukti dicocokkan dengan Formulir Permohonan.</small>
+              </div>
+              <button className="button button-primary" type="button" disabled={working} onClick={runAnalysis}>
+                <Activity size={17}/>
+                {working ? `Memproses... ${syncCount ? `unggah ${syncCount}` : `${job?.progress ?? 0}%`}` : 'Mulai Analisis'}
+              </button>
+            </div>
+
+            <Accordion title="Rincian per Kategori Dokumen (Opsional / Manual)" subtitle="Lihat berkas terdistribusi per kategori atau tambah berkas manual" initialOpen={false}>
+              <div className="categories-list" style={{ marginTop: 10 }}>
+                {CATEGORIES.map((c) => (
+                  <UploadCategoryRow
+                    key={c.id}
+                    id={c.id}
+                    files={items}
+                    onSelect={addFiles}
+                    remove={removeFile}
+                    active={expandedUpload === c.id}
+                    changeActive={setExpandedUpload}
+                  />
+                ))}
+              </div>
+            </Accordion>
           </div>
         </section>
 
@@ -500,8 +777,8 @@ function App() {
             {working && <div className="analysis-progress" role="status"><strong>{job?.message || 'Memproses...'}</strong><div className="progress-track"><span style={{width:`${job?.progress ?? 0}%`}}/></div><small>{job?.progress ?? 0}%</small></div>}
             {backendError && <div className="analysis-error"><AlertCircle size={18}/>{backendError}</div>}
             {result?.warnings?.length ? <div className="analysis-errors"><strong>Peringatan parser formulir</strong>{result.warnings.map((e,i)=><p key={i}>{e}</p>)}</div> : null}
-            {result?.errors?.length ? <div className="analysis-errors"><strong>{result.errors.length} dokumen gagal diekstrak</strong>{result.errors.map(e=><p key={e.document_id}>{e.filename}: {e.error}</p>)}</div>:null}
-            {!working && !result && <div className="analysis-empty"><Activity size={35}/><strong>Belum ada hasil matching</strong><p>Pilih dokumen, kemudian klik Mulai Analisis untuk melihat hasil dari backend.</p><button className="button button-soft" onClick={()=>goTo('upload')}>Ke halaman Upload</button></div>}
+            {result?.errors?.length ? <div className="analysis-errors"><strong>{result.errors.length} dokumen gagal diekstrak</strong>{result.errors.map((e,idx)=><p key={`${e.document_id}-${idx}`}>{e.filename}: {e.error}</p>)}</div>:null}
+            {!working && !result && <div className="analysis-empty"><Activity size={35}/><strong>Belum ada hasil matching</strong><p>Unggah berkas permohonan, kemudian klik Mulai Analisis untuk melihat hasil verifikasi dokumen.</p><button className="button button-soft" onClick={()=>goTo('upload')}>Ke halaman Upload</button></div>}
             <div className="matching-sections">
               {visibleMatchingSections.map((s, i) => <MatchingSection key={`${filter}:${s.id}`} section={s} search={query} filter={filter} onRowClick={(row, section) => setSelectedDetail({row, section})} expandedByDefault={i === 0} />)}
               {result && visibleMatchingSections.length === 0 && <div className="matching-filter-empty">Tidak ada field dengan status atau kata kunci yang dipilih.</div>}
@@ -522,7 +799,6 @@ function App() {
             </article>)}{!visibleDocuments.length && <p className="doc-no-results">Tidak ada dokumen yang cocok dengan pencarian.</p>}</div>}
           </div>
         </section>
-        <footer className="footer"><span>© 2026 · BAPETEN AI Evaluator — aplikasi internal (belum diaudit produksi)</span><span>Sistem Evaluasi Dokumen</span></footer>
       </div>
     </main>
     <DetailPanel selected={selectedDetail} close={() => setSelectedDetail(null)} openEvidence={openEvidence} openRelated={(category) => { goTo('dokumen'); announce('info', `Cari dokumen kategori ${categoryById(category)?.name} pada daftar file yang diunggah.`); }} />

@@ -276,7 +276,8 @@ def _personnel(doc,app,ref):
     kinds={'Surat Izin Praktik (SIP)':'SIP','Surat Izin Bekerja (SIB)':'SIB',
            'Surat Perintah':'SPRINT','Sertifikat Kompetensi':'COMPETENCE',
            'Surat Izin Kerja':'WORK_PERMIT','Surat Keterangan Kerja':'WORK_LETTER',
-           'Surat Penunjukan Tugas':'ASSIGNMENT','Evaluasi Dosis':'DOSE'}
+           'Surat Penunjukan Tugas':'ASSIGNMENT','Evaluasi Dosis':'DOSE',
+           'Evaluasi Dosis / Zero Check':'DOSE'}
     subtype=_text(doc.get('subtype'))
     for source in parsed:
         if subtype in kinds:source['document_type']=kinds[subtype]
@@ -582,6 +583,7 @@ def _v060_personnel_title(doc):
         'Surat Keterangan Kerja':'Surat Keterangan Kerja',
         'Surat Penunjukan Tugas':'Surat Penunjukan Tugas',
         'Evaluasi Dosis':'Evaluasi Dosis',
+        'Evaluasi Dosis / Zero Check':'Evaluasi Dosis / Zero Check',
     }
     title=titles.get(subtype)
     return f'Dokumen Personel - {title}' if title else NAMES['personel']

@@ -89,7 +89,7 @@ cd frontend
 npm run build
 ```
 
-Deploy `frontend/dist/` as static files through Nginx, proxy `/api/` to `http://127.0.0.1:8000/api/`, enforce TLS, internal-network restriction, RBAC/authentication, logging policy, encryption at rest, resource limits, retention, malware scan, backups, and security review.
+Deploy `frontend/dist/` as static files through Nginx, proxy `/api/` to `http://127.0.0.1:8001/api/`, enforce TLS, internal-network restriction, RBAC/authentication, logging policy, encryption at rest, resource limits, retention, malware scan, backups, and security review.
 
 ## 3. Test backend
 
@@ -102,7 +102,7 @@ python -m unittest discover -s tests -p 'test_api.py' -v
 The test creates a synthetic *form* and uploads a synthetic multi-page maintenance PDF for a fictionalized regression flow. The bundled `tests/test_api.py` generates synthetic form and maintenance PDFs in memory, so it runs without distributing original hospital documents. For fixture-free smoke validation:
 
 ```bash
-curl http://127.0.0.1:8000/api/v1/health
+curl http://127.0.0.1:8001/api/v1/health
 ```
 
 ## Implemented backend API

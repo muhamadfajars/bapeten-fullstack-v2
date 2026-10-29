@@ -31,6 +31,19 @@ def _fix_tesseract_location():
     return pytesseract
 
 
+def _tess_ocr(pytesseract, image, config):
+    lang = os.getenv('BAPETEN_TESS_LANG', 'ind+eng')
+    try:
+        return pytesseract.image_to_string(image, lang=lang, config=config)
+    except Exception:
+        if lang != 'eng':
+            try:
+                return pytesseract.image_to_string(image, lang='eng', config=config)
+            except Exception:
+                return ''
+        return ''
+
+
 def _first_page_roi(path, kind):
     """OCR only the identity and equipment blocks, avoiding supplier/footer contamination."""
     if not str(path).lower().endswith('.pdf'):
@@ -52,7 +65,7 @@ def _first_page_roi(path, kind):
         candidates = []
         for image in attempts:
             for mode in (6, 4):
-                content = pytesseract.image_to_string(image, lang='eng', config=f'--psm {mode}')
+                content = _tess_ocr(pytesseract, image, config=f'--psm {mode}')
                 strength = sum(bool(re.search(p,content,re.I)) for p in (
                     r'Rumkit|RS\s+Tentara',r'Kesehatan',r'Pekanbaru',r'No\s+Seri|Serial|S\s*/\s*N',r'Optima'))
                 candidates.append((strength,len(content),content))
@@ -97,7 +110,7 @@ def _pages(path, kind):
                             from PIL import Image
                             pix=page.get_pixmap(matrix=__import__('fitz').Matrix(2,2),alpha=False)
                             image=Image.frombytes('RGB',(pix.width,pix.height),pix.samples)
-                            text=pytesseract.image_to_string(image,lang='eng',config='--psm 3')
+                            text=_tess_ocr(pytesseract, image, config='--psm 3')
                         except Exception: pass
                     out.append({'page':i+1,'text':text,'source':'ocr' if len(norm(page.get_text()))<45 else 'pdf'})
                 return out
@@ -302,7 +315,7 @@ def _tld_names(pages,reference,path=None):
                                    page.rect.width*.93,page.rect.height*.65)
                     pix=page.get_pixmap(matrix=fitz.Matrix(3,3),clip=clip,alpha=False)
                     image=Image.frombytes('RGB',(pix.width,pix.height),pix.samples)
-                    roi=pytesseract.image_to_string(image,lang='eng',config='--psm 11')
+                    roi=_tess_ocr(pytesseract, image, config='--psm 11')
                     at=re.search(r'(?i)Nama\s+Pemakai\s+TLD',roi)
                     if not at:continue
                     roi=roi[at.end():]

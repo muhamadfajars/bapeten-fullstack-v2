@@ -7,22 +7,40 @@ from contextlib import contextmanager
 ROOT=Path(os.environ.get('BAPETEN_DATA_DIR', str(Path(__file__).resolve().parents[1]/'runtime_data'))).resolve()
 _LOCK=threading.RLock()
 
+def init_db():
+    ROOT.mkdir(parents=True, exist_ok=True, mode=0o700)
+    with _LOCK:
+        con = sqlite3.connect(ROOT / 'metadata.sqlite3', timeout=30)
+        try:
+            con.execute('PRAGMA journal_mode=WAL')
+            con.execute('CREATE TABLE IF NOT EXISTS applications(id TEXT PRIMARY KEY, created REAL, updated REAL)')
+            con.execute('CREATE TABLE IF NOT EXISTS documents(id TEXT PRIMARY KEY, app_id TEXT NOT NULL, category TEXT NOT NULL, subtype TEXT, filename TEXT NOT NULL, disk_filename TEXT NOT NULL, size INTEGER NOT NULL, sha256 TEXT NOT NULL, uploaded REAL NOT NULL, FOREIGN KEY(app_id) REFERENCES applications(id))')
+            con.execute('CREATE INDEX IF NOT EXISTS ix_docs_app ON documents(app_id)')
+            con.execute('CREATE TABLE IF NOT EXISTS jobs(id TEXT PRIMARY KEY, app_id TEXT NOT NULL, status TEXT, progress INTEGER, message TEXT, error TEXT, created REAL, updated REAL, result TEXT)')
+            con.commit()
+        finally:
+            con.close()
+
 @contextmanager
 def db():
-    ROOT.mkdir(parents=True,exist_ok=True,mode=0o700)
-    con=sqlite3.connect(ROOT/'metadata.sqlite3',timeout=30)
-    con.row_factory=sqlite3.Row
-    con.execute('PRAGMA journal_mode=WAL')
-    con.execute('CREATE TABLE IF NOT EXISTS applications(id TEXT PRIMARY KEY, created REAL, updated REAL)')
-    con.execute('CREATE TABLE IF NOT EXISTS documents(id TEXT PRIMARY KEY, app_id TEXT NOT NULL, category TEXT NOT NULL, subtype TEXT, filename TEXT NOT NULL, disk_filename TEXT NOT NULL, size INTEGER NOT NULL, sha256 TEXT NOT NULL, uploaded REAL NOT NULL, FOREIGN KEY(app_id) REFERENCES applications(id))')
-    con.execute('CREATE INDEX IF NOT EXISTS ix_docs_app ON documents(app_id)')
-    con.execute('CREATE TABLE IF NOT EXISTS jobs(id TEXT PRIMARY KEY, app_id TEXT NOT NULL, status TEXT, progress INTEGER, message TEXT, error TEXT, created REAL, updated REAL, result TEXT)')
-    con.commit()
+    ROOT.mkdir(parents=True, exist_ok=True, mode=0o700)
+    con = sqlite3.connect(ROOT / 'metadata.sqlite3', timeout=30)
+    con.row_factory = sqlite3.Row
     try:
         yield con
         con.commit()
     finally:
         con.close()
+
+def recover_stale_jobs():
+    """Mark interrupted/orphaned jobs as failed after server restart."""
+    now = time.time()
+    with _LOCK, db() as con:
+        con.execute(
+            "UPDATE jobs SET status='failed', error='Server terhenti sebelum analisis selesai (server restart)', "
+            "message='Analisis terputus', updated=? WHERE status IN ('queued', 'running')",
+            (now,)
+        )
 
 def make_id(): return uuid.uuid4().hex
 
@@ -94,3 +112,6 @@ def latest_result(aid):
 
 def get_job_latest_running(aid):
     with db() as con:return row(con,"SELECT id,status FROM jobs WHERE app_id=? AND status IN ('queued','running') ORDER BY created DESC LIMIT 1",(aid,))
+
+init_db()
+
