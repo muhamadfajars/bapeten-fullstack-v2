@@ -890,6 +890,49 @@ h1 span {
   color: #78350f;
 }
 
+.upload-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.upload-toolbar .search-field {
+  margin: 0;
+  max-width: 100%;
+}
+
+.batch-heading > span {
+  display: block;
+  color: #7d8aa1;
+  font-size: 12px;
+  margin-top: 5px;
+}
+
+.batch-file-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.batch-file-actions .button {
+  padding: 6px 10px;
+}
+
+.batch-file-actions .delete-icon {
+  border: 1px solid #f3dbdc;
+  border-radius: 7px;
+  flex: none;
+}
+
+.batch-table .upload-no-results {
+  padding: 24px;
+  text-align: center;
+  color: #7d8aa1;
+}
+
 .batch-table-wrapper {
   border: 1px solid #e2e8f0;
   border-radius: 10px;
@@ -999,7 +1042,7 @@ h1 span {
 
 .batch-th-action,
 .batch-td-action {
-  width: 50px;
+  width: 142px;
   text-align: center;
 }
 
