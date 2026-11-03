@@ -3,13 +3,13 @@ import type { DragEvent, ReactNode } from 'react';
 import {
   Activity, AlertCircle, ArrowRight, CalendarDays, Check, CheckCircle2,
   ChevronDown, ChevronRight, CircleHelp, CloudUpload,
-  ExternalLink, FileCheck2, FileClock, FileText, FolderOpen, HardDriveUpload,
-  Home, Info, Layers3, LayoutDashboard, Menu,
-  Search, Trash2, UploadCloud, UsersRound, X,
+  ExternalLink, Eye, FileCheck2, FileClock, FileText, FolderOpen, HardDriveUpload,
+  Home, Info, Layers3, LayoutDashboard, LoaderCircle, Menu,
+  RotateCcw, Search, Trash2, UploadCloud, UsersRound, X,
 } from 'lucide-react';
 import bapetenLogo from './assets/bapeten-logo.png';
 import { CATEGORIES, categoryById } from './data/categories';
-import { matchingTotals } from './lib/matching';
+import { matchingTotals, sortMatchingSections } from './lib/matching';
 import {
   newApplication, uploadFile, deleteFile, analyze, jobStatus, latestJob, jobResults, listFiles,
   fetchPreviewFile, fetchEvidencePage, updateFileCategory
@@ -17,7 +17,7 @@ import {
 import type { AnalysisResult, AnalysisJob } from './api';
 import { classifyFile, classifyByFilename } from './lib/classifier';
 import { monitorAnalysis, retryRead } from './lib/analysisMonitor';
-import { applyClassification, classificationBlocker } from './lib/uploadState';
+import { applyClassification, analysisBlocker } from './lib/uploadState';
 import Glyph from './components/Glyph';
 import type { CategoryId, MatchRow, MatchSection, MatchStatus, UploadItem } from './types/models';
 import { PERSONNEL_TYPES } from './types/models';
@@ -27,6 +27,10 @@ const MAX_FILE = 40 * 1024 * 1024;
 const SUPPORTED_EXTENSIONS = new Set(['pdf', 'jpg', 'jpeg', 'png', 'bmp', 'webp', 'tif', 'tiff', 'docx']);
 const sizeLabel = (bytes: number) => bytes >= 1024 * 1024 ? `${(bytes / 1024 / 1024).toFixed(1)} MB` : `${Math.max(1, Math.round(bytes / 1024))} KB`;
 const dateLabel = (iso: string) => new Date(iso).toLocaleDateString('id-ID', { day: '2-digit', month: 'short', year: 'numeric' });
+const analysisDateLabel = (timestamp: number) => {
+  const date = new Date(timestamp * 1000);
+  return `${date.toLocaleDateString('id-ID')}, ${date.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', hourCycle: 'h23' })}`;
+};
 
 type PageId = 'ringkasan' | 'upload' | 'formulir' | 'matching' | 'dokumen';
 type Filter = 'ALL' | MatchStatus;
@@ -49,7 +53,7 @@ function Brand() {
   );
 }
 
-function Sidebar({ active, navigate, open, close }: { active: PageId; navigate: (id: PageId) => void; open: boolean; close: () => void }) {
+function Sidebar({ active, navigate, open, close, working }: { active: PageId; navigate: (id: PageId) => void; open: boolean; close: () => void; working: boolean }) {
   return <>
     {open && <button className="sidebar-mask" onClick={close} aria-label="Tutup menu" />}
     <aside className={`sidebar ${open ? 'mobile-open' : ''}`}>
@@ -57,8 +61,9 @@ function Sidebar({ active, navigate, open, close }: { active: PageId; navigate: 
       <div className="sidebar-label">WORKSPACE</div>
       <nav aria-label="Navigasi utama" className="nav-list">
         {NAV.map(({ id, label, icon: Icon }) => (
-          <button key={id} className={`nav-link ${active === id ? 'active' : ''}`} onClick={() => { navigate(id); close(); }}>
+          <button key={id} className={`nav-link ${active === id ? 'active' : ''}`} aria-current={active === id ? 'page' : undefined} onClick={() => { navigate(id); close(); }}>
             <Icon size={19} strokeWidth={1.9} /><span>{label}</span>
+            {id === 'matching' && working && <span className="nav-progress" title="Analisis sedang berjalan"><LoaderCircle className="analysis-spinner" size={16} aria-hidden="true"/><span className="sr-only"> — Analisis sedang berjalan</span></span>}
             {active === id && <span className="active-marker" />}
           </button>
         ))}
@@ -68,7 +73,7 @@ function Sidebar({ active, navigate, open, close }: { active: PageId; navigate: 
           <span className="sidebar-seal"><img src={bapetenLogo} alt="" className="sidebar-seal-img" /></span>
           <div><strong>BAPETEN</strong><small>Asisten Evaluasi Perizinan</small></div>
         </div>
-        <div className="sidebar-copyright">© 2026 BAPETEN — Asisten Evaluasi Perizinan</div>
+        <div className="sidebar-copyright">© BAPETEN</div>
       </div>
     </aside>
   </>;
@@ -114,36 +119,6 @@ function Accordion({ title, subtitle, icon, children, initialOpen = false, count
       <div className="accordion-right">{count}<ChevronDown className="accordion-chevron" size={19} /></div>
     </button>
     {open && <div className="accordion-body">{children}</div>}
-  </div>;
-}
-
-function UploadCategoryRow({ id, files, onSelect, remove, active, changeActive }: {
-  id: CategoryId; files: UploadItem[]; onSelect: (id: CategoryId, fileList: FileList | File[] | null, subtype?: string) => void;
-  remove: (id: string) => void; active: boolean; changeActive: (id: CategoryId | null) => void;
-}) {
-  const category = categoryById(id)!;
-  const inputRef = useRef<HTMLInputElement>(null);
-  const [subtype, setSubtype] = useState<string>(PERSONNEL_TYPES[0]);
-  const myFiles = files.filter((file) => file.category === id);
-  return <div className={`category-row ${active ? 'expanded' : ''}`}>
-    <button className="category-main" type="button" onClick={() => changeActive(active ? null : id)} aria-expanded={active}>
-      <span className={`category-icon category-${id}`}><Glyph name={category.icon} /></span>
-      <span className="category-title"><strong>{category.name}</strong></span>
-      <span className={`file-counter ${myFiles.length ? 'has-files' : ''}`}>{myFiles.length} file</span>
-      <ChevronDown className="category-chevron" size={18} />
-    </button>
-    {active && <div className="category-detail">
-      <p>{myFiles.length ? 'Berkas dalam kategori ini:' : 'Belum ada berkas. Tambahkan file ke kategori ini untuk mulai menyusun permohonan.'}</p>
-      {myFiles.length > 0 && <div className="category-file-list">{myFiles.map((f) => <div className="category-file" key={f.id}>
-        <FileText size={17} /><span className="file-name" title={f.name}>{f.name}</span>{f.subtype && <span className="subtype-note">{f.subtype}</span>}
-        <small>{sizeLabel(f.size)}</small><button className="icon-button delete-icon" onClick={() => remove(f.id)} aria-label={`Hapus ${f.name}`}><Trash2 size={16} /></button>
-      </div>)}</div>}
-      <div className="add-file-row">
-        {category.requiresSubtype && <label className="subtype-field">Jenis personel <select value={subtype} onChange={(e) => setSubtype(e.target.value)}>{PERSONNEL_TYPES.map((t) => <option key={t}>{t}</option>)}</select></label>}
-        <button className="button button-soft button-sm" type="button" onClick={() => inputRef.current?.click()}><UploadCloud size={16} /> Tambah File</button>
-        <input ref={inputRef} hidden type="file" multiple accept=".pdf,.jpg,.jpeg,.png,.bmp,.webp,.tif,.tiff,.docx" onChange={(e) => { onSelect(id, e.target.files, category.requiresSubtype ? subtype : undefined); e.target.value = ''; }} />
-      </div>
-    </div>}
   </div>;
 }
 
@@ -221,28 +196,30 @@ function MatchingSection({ section, search, filter, onRowClick, expandedByDefaul
   return <div className="matching-section streamlit-style">
     <button className="match-section-header" type="button" onClick={() => setOpen(!open)} aria-expanded={open}>
       <span className="match-heading-group"><span className={`category-icon category-${section.category}`}><Glyph name={categoryById(section.category)?.icon ?? 'file'} /></span>
-        <span><strong>{matchingSectionTitle(section)}</strong><small>{filtered.length} field ditampilkan</small></span></span>
+        <span><strong>{matchingSectionTitle(section)}</strong><small>{filtered.length === section.rows.length ? `${filtered.length} field` : `${filtered.length} dari ${section.rows.length} field ditampilkan`}</small></span></span>
       <span className="match-pills"><span className="pill green">{stats.match} Match</span>{stats.review > 0 && <span className="pill amber">{stats.review} Review</span>}{stats.mismatch > 0 && <span className="pill red">{stats.mismatch} Mismatch</span>}</span>
       <ChevronDown size={19} className={`match-chevron ${open ? 'rotated' : ''}`} />
     </button>
     {open && <div className="match-section-content">
-      <div className="streamlit-stats">
+      <div className="streamlit-stats" aria-label="Ringkasan seluruh field dalam kategori">
         <div><span>Kecocokan terbukti</span><strong>{stats.percentage.toFixed(1)}%</strong></div>
         <div><span>MATCH</span><strong>{stats.match}</strong></div>
         <div><span>REVIEW</span><strong>{stats.review}</strong></div>
         <div><span>MISMATCH</span><strong>{stats.mismatch}</strong></div>
       </div>
-      <div className="table-scroll">
-        <table className="matching-table"><thead><tr><th>Field</th><th>Formulir</th><th>Dokumen</th><th>Skor</th><th>Status</th></tr></thead><tbody>
-          {filtered.map((row, i) => <tr key={`${row.id}-${i}`} onClick={() => onRowClick(row, section)} tabIndex={0} role="button" onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onRowClick(row, section); } }} title="Lihat detail field">
-            <td className="field-column">{row.field}</td><td>{row.expected}</td><td className={row.observed === '—' ? 'empty-observed' : ''}>{row.observed}</td>
+      <div className="table-scroll matching-table-scroll" tabIndex={0} role="region" aria-label={`Tabel ${matchingSectionTitle(section)}`}>
+        <table className="matching-table"><thead><tr><th scope="col">Field</th><th scope="col">Formulir</th><th scope="col">Dokumen</th><th scope="col">Skor</th><th scope="col">Status</th></tr></thead><tbody>
+          {filtered.map((row, i) => <tr key={`${row.id}-${i}`} className={`matching-row-${row.status.toLowerCase()}`} onClick={() => onRowClick(row, section)}>
+            <td className="field-column"><button type="button" className="field-detail-button" aria-label={`Lihat detail ${row.field}`} onClick={event => { event.stopPropagation(); onRowClick(row, section); }}>{row.field}</button></td><td>{row.expected}</td><td className={row.observed === '—' ? 'empty-observed' : ''}>{row.observed}
+              {row.document_id && <button type="button" className="matching-evidence-button" aria-label={`Lihat Bukti ${row.field}`} onClick={event => { event.stopPropagation(); onRowClick(row, section); }}><Eye size={14} aria-hidden="true"/> Lihat Bukti</button>}
+            </td>
             <td className="score-column">{row.score === null ? '—' : `${row.score.toFixed(1)}%`}</td><td><span className={`streamlit-status status-text-${row.status.toLowerCase()}`}>{row.status}</span></td>
           </tr>)}
           {!filtered.length && <tr><td colSpan={5} className="empty-table">Tidak ada field yang sesuai pencarian atau filter.</td></tr>}
         </tbody></table>
       </div>
       <StreamlitDetails section={section} filter={filter} search={search} />
-      <div className="table-footer"><span>Klik baris untuk rincian nilai dan sumber PDF.</span><span>{filtered.length} dari {section.rows.length} field</span></div>
+      <div className="table-footer"><span>Pilih field untuk detail atau Lihat Bukti untuk sumber.</span><span>{filtered.length} dari {section.rows.length} field</span></div>
     </div>}
   </div>;
 }
@@ -261,6 +238,7 @@ function DetailPanel({ selected, close, openRelated, openEvidence }: { selected:
       <DataPair label="Halaman bukti" value={row.page ? `Halaman ${row.page}` : 'Tidak dicatat pada hasil pemeriksaan'} />
       {row.note && <div className="detail-note"><Info size={17} />{row.note}</div>}
       <div className="detail-divider" />
+      {row.document_id && row.detail?.type === 'approval' && <ApprovalEvidence row={row}/>}
       {row.document_id && row.detail?.type !== 'approval' && <button className="button button-soft button-full" type="button" onClick={() => openEvidence(row.document_id!,row.page)}><ExternalLink size={16}/> Buka PDF sumber {row.page ? `· Halaman ${row.page}` : ''}</button>}
       <p className="detail-disclaimer">Nilai dibaca dari dokumen yang diunggah. Status MATCH tidak menyatakan keabsahan izin atau tanda tangan.</p>
       <button className="button button-primary button-full" type="button" onClick={() => { close(); openRelated(section.category); }}><FolderOpen size={17} /> Lihat dokumen kategori ini</button>
@@ -288,13 +266,16 @@ function App() {
   const [savingCategory, setSavingCategory] = useState(false);
   const categorySaveLock = useRef(false);
   const [syncCount,setSyncCount] = useState(0);
+  const [syncTotal, setSyncTotal] = useState(0);
+  const [analysisStage, setAnalysisStage] = useState<'restoring' | 'preparing' | 'uploading' | 'processing'>('restoring');
   const [backendError,setBackendError] = useState('');
   const displayForm = result?.form_reference ?? null;
-  const displaySections = result?.matching_sections ?? [];
+  const displaySections = useMemo(() => sortMatchingSections(result?.matching_sections ?? []), [result]);
   const [mobileNav, setMobileNav] = useState(false);
   const [items, setItems] = useState<UploadItem[]>([]);
   const [showUnclassified, setShowUnclassified] = useState(false);
-  const [expandedUpload, setExpandedUpload] = useState<CategoryId | null>(null);
+  const [manualCategory, setManualCategory] = useState('');
+  const [uploadSearch, setUploadSearch] = useState('');
   const [dragged, setDragged] = useState(false);
   const [toast, setToast] = useState<Toast>(null);
   const [query, setQuery] = useState('');
@@ -303,23 +284,42 @@ function App() {
   const [docSearch, setDocSearch] = useState('');
   const formOpen = { facility: true, personnel: false, equipment: false };
   const globalInput = useRef<HTMLInputElement>(null);
+  const resetDialog = useRef<HTMLDialogElement>(null);
+  const manualDialog = useRef<HTMLDialogElement>(null);
+  const manualInput = useRef<HTMLInputElement>(null);
   const toastRef = useRef<number | null>(null);
   const totals = useMemo(() => matchingTotals(displaySections), [displaySections]);
+  const filterTotals = useMemo(() => matchingTotals(displaySections.map(section => ({
+    ...section, rows: section.rows.filter(row => rowMatchesFilter(row, 'ALL', query)),
+  }))), [displaySections, query]);
   // Hide entire document panels that have no rows for the selected filter.
   const visibleMatchingSections = useMemo(() => displaySections.filter(section =>
     section.rows.some(row => rowMatchesFilter(row, filter, query))), [displaySections, filter, query]);
   const categoryCount = useMemo(() => new Set(items.filter(f => f.category !== 'unknown').map(f => f.category)).size, [items]);
-  const classificationMessage = classificationBlocker(items);
-  const unclassifiedCount = items.filter(item => item.category === 'unknown').length;
+  const analysisMessage = analysisBlocker(items);
+  const unclassifiedCount = items.filter(item => item.category === 'unknown' && !item.isClassifying).length;
+  const recognizingCount = items.filter(item => item.isClassifying).length;
   const reviewItems = useMemo(() => {
-    const unclassified = items.filter(item => item.category === 'unknown');
-    if (showUnclassified && unclassified.length) return unclassified;
-    return [...unclassified, ...items.filter(item => item.category !== 'unknown')];
-  }, [items, showUnclassified]);
+    const unclassified = items.filter(item => item.category === 'unknown' && !item.isClassifying);
+    const visible = showUnclassified && unclassified.length ? unclassified : [
+      ...unclassified, ...items.filter(item => item.isClassifying),
+      ...items.filter(item => item.category !== 'unknown' && !item.isClassifying),
+    ];
+    const search = uploadSearch.trim().toLowerCase();
+    return visible.filter(item => `${item.name} ${categoryById(item.category)?.name ?? ''} ${item.subtype ?? ''}`.toLowerCase().includes(search));
+  }, [items, showUnclassified, uploadSearch]);
   useEffect(() => {
     if (unclassifiedCount === 0) setShowUnclassified(false);
   }, [unclassifiedCount]);
   const formCount = useMemo(() => items.filter((f) => f.category === 'formulir').length, [items]);
+  const progressTitle = analysisStage === 'restoring' ? 'Memulihkan sesi evaluasi…' : 'Analisis sedang berjalan…';
+  const progressMessage = reconnecting ? 'Koneksi terputus. Mencoba tersambung kembali…'
+    : analysisStage === 'restoring' ? 'Memeriksa dokumen dan status analisis terakhir.'
+    : analysisStage === 'preparing' ? 'Menyiapkan pengiriman dokumen…'
+    : analysisStage === 'uploading' ? `Mengirim dokumen ${syncCount} dari ${syncTotal}…`
+    : job?.status === 'completed' ? 'Menyiapkan hasil matching…'
+    : job?.message || 'Memulai analisis dokumen…';
+  const analysisProgress = job ? Math.max(0, Math.min(100, job.progress)) : undefined;
 
   useEffect(() => () => { if (toastRef.current !== null) window.clearTimeout(toastRef.current); }, []);
   const announce = useCallback((tone: 'success' | 'warning' | 'info', message: string) => {
@@ -348,6 +348,7 @@ function App() {
     monitorController.current = controller;
     const { signal } = controller;
     setWorking(true);
+    setAnalysisStage('restoring');
     setBackendError('');
     goTo('matching');
     const read = <T,>(fn: () => Promise<T>) => retryRead(fn, signal, setReconnecting);
@@ -362,6 +363,7 @@ function App() {
       });
       const { job: latest } = await read(() => latestJob(aid, signal));
       if (!latest) return;
+      setAnalysisStage('processing');
       setResult(null);
       const analyzed = await followAnalysis(aid, latest, signal).catch(error => {
         // An already completed result can be invalidated by a category correction.
@@ -384,30 +386,32 @@ function App() {
 
   const runAnalysis = async () => {
     if(working || submitting.current || categorySaveLock.current) return;
-    if(classificationMessage) {announce('warning', classificationMessage);goTo('upload');return;}
-    if(!items.some((x)=>x.category==='formulir')) {announce('warning','Unggah satu Formulir Permohonan terlebih dahulu.');goTo('upload');return;}
-    if(items.filter((x)=>x.category==='formulir').length!==1) {announce('warning','Wajib tepat satu Formulir Permohonan sebagai acuan.');return;}
-    if(items.length<2) {announce('warning','Tambahkan sekurangnya satu dokumen pendukung.');return;}
+    if(analysisMessage) {announce('warning', analysisMessage);goTo('upload');return;}
     submitting.current = true;
     monitorController.current?.abort();
     const controller = new AbortController();
     monitorController.current = controller;
     setBackendError('');setWorking(true);setResult(null);setJob(null);setReconnecting(false);
+    setAnalysisStage('preparing');setSyncCount(0);setSyncTotal(0);
+    setToast(null);setQuery('');setFilter('ALL');setSelectedDetail(null);
+    goTo('matching');
     try {
       let aid=applicationId;
       if(!aid){const data=await newApplication();aid=data.application_id;setApplicationId(aid);sessionStorage.setItem('bapeten_application_id',aid);}
       const pending=items.filter((x)=>!x.serverId);
+      setSyncTotal(pending.length);
       for(let i=0;i<pending.length;i++) {
         const item=pending[i];
         if(item.category === 'unknown') throw new Error('Pilih kategori untuk semua dokumen terlebih dahulu.');
         if(!item.file) throw new Error('File lokal telah hilang. Tambahkan ulang dokumen.');
         setSyncCount(i+1);
+        setAnalysisStage('uploading');
         const uploaded=await uploadFile(aid,item.category,item.file,item.subtype);
         setItems((old)=>old.map((x)=>x.id===item.id?{...x,serverId:uploaded.document.id,sha256:uploaded.document.sha256}:x));
       }
+      setAnalysisStage('processing');setSyncCount(0);
       const started=await analyze(aid);
       const initial: AnalysisJob = {id:started.job_id,status:'queued',progress:0,message:'Menunggu antrean analisis',error:null};
-      goTo('matching');
       const analyzed = await followAnalysis(aid, initial, controller.signal);
       setResult(analyzed);
       if(analyzed.errors?.length)announce('warning',`${analyzed.errors.length} dokumen gagal dianalisis. Lihat rincian pada halaman Hasil Matching.`);
@@ -420,19 +424,28 @@ function App() {
   };
   const resetApplication = () => {
     if(working || categorySaveLock.current)return;
-    if(!window.confirm('Buat permohonan baru? Daftar dokumen di tampilan ini akan dikosongkan.'))return;
+    resetDialog.current?.close();
     sessionStorage.removeItem('bapeten_application_id');setApplicationId(null);setItems([]);setResult(null);setJob(null);setBackendError('');setActive('upload');
+    setQuery('');setFilter('ALL');setDocSearch('');setUploadSearch('');setManualCategory('');setShowUnclassified(false);setSelectedDetail(null);setToast(null);
   };
   const addFiles = useCallback((category: CategoryId, files: FileList | File[] | null, subtype?: string) => {
     if (working || categorySaveLock.current || !files || !files.length) return;
     const incoming = Array.from(files);
     const valid = incoming.filter((f) => SUPPORTED_EXTENSIONS.has(f.name.split('.').pop()?.toLowerCase() ?? '') && f.size <= MAX_FILE && f.size > 0);
     const invalid = incoming.length - valid.length;
+    if (!valid.length) {
+      announce('warning', `${invalid} file ditolak. Gunakan PDF/gambar/DOCX, maksimal 40 MB per file.`);
+      return;
+    }
+    if (valid.every(file => items.some(item => item.name === file.name && item.size === file.size))) {
+      announce('warning', 'Berkas sudah ada dalam daftar. Ubah kategori melalui daftar dokumen jika diperlukan.');
+      return;
+    }
     setResult(null);
     setItems((old) => {
       const next = [...old];
       for (const file of valid) {
-        const duplicate = next.some((item) => item.category === category && item.name === file.name && item.size === file.size);
+        const duplicate = next.some((item) => item.name === file.name && item.size === file.size);
         if (!duplicate) {
           next.push({
             id: ID(),
@@ -451,7 +464,7 @@ function App() {
     });
     if (invalid) announce('warning', `${invalid} file ditolak. Gunakan PDF/gambar/DOCX, maksimal 40 MB per file.`);
     else announce('success', `File ditambahkan untuk kategori ${categoryById(category)?.name}.`);
-  }, [announce, working]);
+  }, [announce, working, items]);
 
   const handleBatchFiles = useCallback(async (files: FileList | File[] | null) => {
     if (working || categorySaveLock.current || !files || !files.length) return;
@@ -591,26 +604,28 @@ function App() {
       }).catch(e=>{if(win)win.close();announce('warning',String(e));});return;
     }
     const url = URL.createObjectURL(file);
-    const win = window.open(url, '_blank', 'noopener,noreferrer');
+    const win = window.open('about:blank', '_blank');
+    if (win) { win.opener = null; win.location.href = url; }
     if (!win) announce('warning', 'Popup diblokir browser. Izinkan popup untuk membuka dokumen.');
     window.setTimeout(() => URL.revokeObjectURL(url), 120000);
   };
   const visibleDocuments = items.filter((item) => `${item.name} ${(categoryById(item.category)?.name ?? 'Perlu Pilih Kategori')} ${item.subtype || ''}`.toLowerCase().includes(docSearch.toLowerCase()));
 
   return <div className="app-shell">
-    <Sidebar active={active} navigate={goTo} open={mobileNav} close={() => setMobileNav(false)} />
+    <Sidebar active={active} navigate={goTo} open={mobileNav} close={() => setMobileNav(false)} working={working} />
     <main className="main-area">
       <div className="topbar">
         <div className="topbar-left"><button className="mobile-menu icon-button" onClick={() => setMobileNav(true)} aria-label="Buka menu"><Menu size={20}/></button>
           <span className="breadcrumb">Workspace</span><ChevronRight size={15}/><span className="breadcrumb-current">Evaluasi Permohonan</span></div>
-        <div className="topbar-right"><span className="demo-indicator"><span/> {result ? 'Hasil Tersedia' : 'Menunggu Analisis'}</span><span className="user-avatar">EV</span><span className="user-label">Evaluator</span></div>
+        <div className="topbar-right"><span className="demo-indicator"><span/> {working ? 'Analisis Berlangsung' : backendError ? 'Perlu Diperiksa' : result ? 'Hasil Tersedia' : 'Menunggu Analisis'}</span><span className="user-avatar">EV</span><span className="user-label">Evaluator</span></div>
       </div>
       <div className="content-wrap">
         <section className="page-section overview-section" id="ringkasan" hidden={active!=='ringkasan'}>
           <div className="page-hero">
             <div><span className="eyebrow">DASHBOARD · WORKSPACE EVALUASI</span><h1>Evaluasi Dokumen <span>Permohonan</span></h1>
+              <div className="hero-scope-subtitle">Radiologi Diagnostik &amp; Intervensional</div>
               <p>Pusat pemeriksaan dokumen, perbandingan data formulir, dan penelusuran hasil matching per kategori.</p></div>
-            <div className="hero-actions"><button className="button button-soft" onClick={resetApplication}>Permohonan Baru</button><button className="button button-primary hero-button" onClick={() => goTo('upload')}>Upload Dokumen <ArrowRight size={17}/></button></div>
+            <div className="hero-actions"><button className="button button-new-evaluation hero-button" disabled={working || savingCategory} onClick={() => resetDialog.current?.showModal()}><RotateCcw size={17} aria-hidden="true"/>Mulai Evaluasi Baru</button><button className="button button-primary hero-button" onClick={() => goTo('upload')}>Upload Dokumen <ArrowRight size={17}/></button></div>
           </div>
           <div className="summary-grid">
             <SummaryCard icon={<FolderOpen size={25}/>} label="Dokumen di permohonan" value={items.length} note={`${categoryCount} dari ${CATEGORIES.length} kategori terisi`} tone="rose" />
@@ -628,22 +643,26 @@ function App() {
           <SectionHeading
             eyebrow="LANGKAH 01"
             title="Upload Dokumen Permohonan"
-            description="Unggah semua dokumen permohonan sekaligus (batch). Sistem otomatis mengklasifikasikan dokumen ke kategori yang sesuai."
-            action={<span className="tiny-counter">{items.length} dokumen dipilih</span>}
+            description="Unggah berkas, periksa kategori, lalu mulai analisis."
           />
           <div className="surface upload-surface">
             <div
-              className={`dropzone ${dragged ? 'drag-active' : ''}`}
+              className={`dropzone ${items.length ? 'dropzone-compact' : ''} ${dragged ? 'drag-active' : ''}`}
               onDragOver={(e) => { e.preventDefault(); setDragged(true); }}
               onDragLeave={(e) => { e.preventDefault(); setDragged(false); }}
               onDrop={onDrop}
             >
               <div className="dropzone-icon"><CloudUpload size={33}/></div>
-              <h3>Tarik dan letakkan seluruh berkas permohonan di sini</h3>
-              <p>Sistem otomatis mengenali dan mengelompokkan dokumen ke kategori persyaratan yang sesuai</p>
+              <div className="dropzone-copy">
+                <h3>{items.length ? 'Tambahkan berkas permohonan' : 'Unggah berkas permohonan'}</h3>
+                <p>{items.length ? 'PDF, JPG, PNG, DOCX · Maks. 40 MB/file' : 'Tarik berkas ke sini atau pilih dari komputer. Kategori akan dikenali otomatis.'}</p>
+              </div>
               <div className="dropzone-actions">
-                <button className="button button-primary" type="button" onClick={() => globalInput.current?.click()}>
-                  <UploadCloud size={17}/> Pilih Berkas dari Komputer
+                <button className="button button-primary" type="button" disabled={working || savingCategory} onClick={() => globalInput.current?.click()}>
+                  <UploadCloud size={17}/> Pilih Berkas
+                </button>
+                <button className="button button-new-evaluation" type="button" disabled={working || savingCategory} onClick={() => { setManualCategory(''); manualDialog.current?.showModal(); }}>
+                  <FolderOpen size={17}/> Tambah ke Kategori
                 </button>
               </div>
               <input
@@ -654,36 +673,39 @@ function App() {
                 hidden
                 onChange={(event) => { handleBatchFiles(event.target.files); event.target.value = ''; }}
               />
-              <small>Mendukung PDF, JPG, PNG, BMP, WEBP, TIFF, DOCX · Maks. 40 MB/file</small>
+              {!items.length && <small>PDF, JPG, PNG, DOCX · Maks. 40 MB/file</small>}
             </div>
 
             {items.length > 0 && (
               <div className="batch-review-section">
                 <div className="batch-summary-header">
                   <div className="batch-summary-left">
-                    <h4>Daftar Dokumen ({items.length})</h4>
+                    <div className="batch-heading"><h4>Daftar Dokumen</h4><span>{items.length} dokumen · {categoryCount} kategori</span></div>
                     {formCount === 1 ? (
-                      <span className="status-pill success"><CheckCircle2 size={14} /> Formulir Permohonan Siap</span>
+                      <span className="status-pill success"><CheckCircle2 size={14} /> 1 Formulir Permohonan</span>
                     ) : formCount === 0 ? (
-                      <span className="status-pill danger"><AlertCircle size={14} /> Wajib 1 Formulir Permohonan PDF</span>
+                      <span className="status-pill danger"><AlertCircle size={14} /> Formulir belum tersedia</span>
                     ) : (
                       <span className="status-pill warning"><AlertCircle size={14} /> Terdeteksi {formCount} Formulir (Wajib tepat 1)</span>
                     )}
-                    <span className="tiny-counter">{categoryCount} dari {CATEGORIES.length} kategori terisi</span>
+                    {recognizingCount > 0 && <span className="tiny-counter" role="status">Mengenali {recognizingCount} dokumen…</span>}
                   </div>
-                  <button className="button button-soft button-sm" type="button" onClick={clearAllFiles}>
-                    <Trash2 size={14} /> Kosongkan Semua
+                  <button className="text-action" type="button" disabled={working || savingCategory} onClick={clearAllFiles}>
+                    <Trash2 size={14} /> Kosongkan
                   </button>
                 </div>
 
-                {unclassifiedCount > 0 && <div className="upload-filters" role="group" aria-label="Filter klasifikasi dokumen">
+                <div className="upload-toolbar">
+                <div className="upload-filters" role="group" aria-label="Filter klasifikasi dokumen">
                   <button type="button" aria-pressed={!showUnclassified} onClick={() => setShowUnclassified(false)}>
                     Semua ({items.length})
                   </button>
-                  <button type="button" className="unclassified-filter" aria-pressed={showUnclassified} onClick={() => setShowUnclassified(true)}>
+                  {unclassifiedCount > 0 && <button type="button" className="unclassified-filter" aria-pressed={showUnclassified} onClick={() => setShowUnclassified(true)}>
                     <AlertCircle size={14} aria-hidden="true" /> Perlu Pilih Kategori ({unclassifiedCount})
-                  </button>
-                </div>}
+                  </button>}
+                </div>
+                <label className="search-field"><Search size={17}/><input type="search" aria-label="Cari dokumen unggahan" placeholder="Cari dokumen…" value={uploadSearch} onChange={event => setUploadSearch(event.target.value)} /></label>
+                </div>
                 <div className="batch-table-wrapper">
                   <div className="table-scroll">
                     <table className="batch-table">
@@ -705,7 +727,7 @@ function App() {
                             !(PERSONNEL_TYPES as readonly string[]).includes(item.subtype!);
 
                           return (
-                            <tr key={item.id} className={item.category === 'unknown' ? 'unclassified-row' : undefined}>
+                            <tr key={item.id} className={item.category === 'unknown' && !item.isClassifying ? 'unclassified-row' : undefined}>
                               <td className="batch-td-doc">
                                 <div className="batch-file-info">
                                   <span className={`category-icon category-${item.category} batch-file-icon`}>
@@ -757,19 +779,26 @@ function App() {
                                 </select>
                               </td>
                               <td className="batch-td-action">
+                                <div className="batch-file-actions">
+                                <button className="button button-soft button-sm" type="button" onClick={() => viewFile(item.file, item.serverId)} aria-label={`Lihat ${item.name}`}>
+                                  <Eye size={16} aria-hidden="true"/> Lihat
+                                </button>
                                 <button
                                   className="icon-button delete-icon"
                                   type="button"
+                                  disabled={working || savingCategory}
                                   onClick={() => removeFile(item.id)}
                                   aria-label={`Hapus ${item.name}`}
                                   title="Hapus berkas"
                                 >
                                   <Trash2 size={16} />
                                 </button>
+                                </div>
                               </td>
                             </tr>
                           );
                         })}
+                        {!reviewItems.length && <tr><td colSpan={3} className="upload-no-results">Tidak ada dokumen yang cocok dengan pencarian.</td></tr>}
                       </tbody>
                     </table>
                   </div>
@@ -781,37 +810,25 @@ function App() {
               <div className="classification-disclaimer">
                 <AlertCircle size={16} />
                 <span>
-                  <strong>Catatan Evaluator:</strong> Harap periksa kembali kesesuaian kategori dokumen sebelum analisis dijalankan.
+                  <strong>Catatan Evaluator:</strong> Periksa kesesuaian kategori sebelum analisis.
                 </span>
               </div>
             )}
 
-            <div className="analysis-action-bar">
-              <div>
-                <strong>Jalankan Analisis Dokumen</strong>
-                <small>Berkas akan dianalisis secara otomatis sesuai kategorinya dan bukti dicocokkan dengan Formulir Permohonan.</small>
+            <div className={`analysis-action-bar ${analysisMessage && !working ? 'analysis-blocked' : ''}`}>
+              <div className="analysis-readiness" role="status">
+                {working ? <Activity size={22}/> : analysisMessage ? <AlertCircle size={22}/> : <CheckCircle2 size={22}/>}
+                <div>
+                  <strong>{working ? progressMessage : savingCategory ? 'Menyimpan kategori…' : analysisMessage || 'Dokumen siap dianalisis'}</strong>
+                  {!working && !analysisMessage && <small>Data dokumen akan dicocokkan dengan Formulir Permohonan.</small>}
+                </div>
               </div>
-              <button className="button button-primary" type="button" title={savingCategory ? 'Menyimpan kategori…' : classificationMessage ?? undefined} disabled={working || savingCategory || Boolean(classificationMessage)} onClick={runAnalysis}>
+              <button className="button button-primary" type="button" disabled={working || savingCategory || Boolean(analysisMessage)} onClick={runAnalysis}>
                 <Activity size={17}/>
                 {working ? `Memproses... ${syncCount ? `unggah ${syncCount}` : `${job?.progress ?? 0}%`}` : 'Mulai Analisis'}
               </button>
             </div>
 
-            <Accordion title="Rincian per Kategori Dokumen (Opsional / Manual)" subtitle="Lihat berkas terdistribusi per kategori atau tambah berkas manual" initialOpen={false}>
-              <div className="categories-list" style={{ marginTop: 10 }}>
-                {CATEGORIES.map((c) => (
-                  <UploadCategoryRow
-                    key={c.id}
-                    id={c.id}
-                    files={items}
-                    onSelect={addFiles}
-                    remove={removeFile}
-                    active={expandedUpload === c.id}
-                    changeActive={setExpandedUpload}
-                  />
-                ))}
-              </div>
-            </Accordion>
           </div>
         </section>
 
@@ -835,17 +852,22 @@ function App() {
         </section>
 
         <section className="page-section" id="matching" hidden={active!=='matching'}>
-          <SectionHeading eyebrow="LANGKAH 03" title="Detail Matching" description="Perbandingan data Formulir dan Dokumen, dengan status MATCH, REVIEW, atau MISMATCH per field." action={<span className="outline-label"><FileCheck2 size={14}/> {displaySections.length} dokumen dianalisis</span>} />
+          <SectionHeading eyebrow="LANGKAH 03" title="Hasil Matching" description="Perbandingan data Formulir dan Dokumen, dengan status MATCH, REVIEW, atau MISMATCH per field." action={result ? <span className="outline-label"><FileCheck2 size={14}/> {result.analyzed_documents} dokumen dianalisis</span> : undefined} />
           <div className="surface matching-surface">
-            <div className="matching-toolbar"><div className="match-toolbar-summary"><strong>Hasil Validasi Dokumen</strong><p>{result ? `Selesai dianalisis pada ${new Date(result.finished_at*1000).toLocaleString('id-ID')}` : working ? job?.message || "Analisis sedang berjalan" : "Belum ada hasil. Jalankan analisis pada halaman Upload."}</p></div><div className="filter-group">
+            {result && <div className="matching-toolbar"><div className="match-toolbar-summary"><strong>Hasil Validasi Dokumen</strong><p>{`Selesai dianalisis pada ${analysisDateLabel(result.finished_at)}`}</p></div><div className="filter-group">
               <label className="search-field"><Search size={17}/><input type="search" placeholder="Cari field atau nilai..." value={query} onChange={(e) => setQuery(e.target.value)} /></label>
-              <div className="filter-buttons" role="group" aria-label="Filter status">{(['ALL','MATCH','REVIEW','MISMATCH'] as Filter[]).map((f) => <button key={f} className={filter === f ? 'active' : ''} onClick={() => setFilter(f)}>{f === 'ALL' ? 'Semua' : f === 'MATCH' ? 'Match' : f === 'REVIEW' ? 'Review' : 'Mismatch'}</button>)}</div>
-            </div></div>
-            {working && <div className="analysis-progress" role="status"><strong>{reconnecting ? 'Koneksi terputus. Mencoba kembali…' : job?.message || 'Memeriksa status analisis…'}</strong><div className="progress-track"><span style={{width:`${job?.progress ?? 0}%`}}/></div><small>{job?.progress ?? 0}%</small></div>}
-            {backendError && <div className="analysis-error"><AlertCircle size={18}/>{backendError}</div>}
+              <div className="filter-buttons" role="group" aria-label="Filter status">{(['ALL','MATCH','REVIEW','MISMATCH'] as Filter[]).map((f) => <button key={f} className={filter === f ? 'active' : ''} aria-pressed={filter === f} onClick={() => setFilter(f)}>{f === 'ALL' ? 'Semua' : f === 'MATCH' ? 'Match' : f === 'REVIEW' ? 'Review' : 'Mismatch'} ({f === 'ALL' ? filterTotals.total : f === 'MATCH' ? filterTotals.match : f === 'REVIEW' ? filterTotals.review : filterTotals.mismatch})</button>)}</div>
+            </div></div>}
+            {working && <div className="analysis-progress">
+              <div className="analysis-progress-heading"><LoaderCircle className="analysis-spinner" size={28} aria-hidden="true"/><div role="status"><strong>{progressTitle}</strong><p>{progressMessage}</p></div></div>
+              <div className={`progress-track ${analysisProgress === undefined ? 'progress-indeterminate' : ''}`} role="progressbar" aria-label={analysisStage === 'uploading' ? 'Pengiriman dokumen' : 'Progres analisis'} aria-valuemin={0} aria-valuemax={100} aria-valuenow={analysisProgress} aria-valuetext={progressMessage}><span style={analysisProgress === undefined ? undefined : {width:`${analysisProgress}%`}}/></div>
+              {analysisProgress !== undefined && <small>{analysisProgress}%</small>}
+              <p className="analysis-progress-hint">Anda dapat membuka menu lain. Proses tetap berjalan.</p>
+            </div>}
+            {backendError && !working && <div className="analysis-error" role="alert"><AlertCircle size={24}/><div><strong>Analisis belum berhasil diselesaikan</strong><p>{backendError}</p><button className="button button-soft" type="button" onClick={() => goTo('upload')}>Kembali ke Upload</button></div></div>}
             {result?.warnings?.length ? <div className="analysis-errors"><strong>Peringatan parser formulir</strong>{result.warnings.map((e,i)=><p key={i}>{e}</p>)}</div> : null}
             {result?.errors?.length ? <div className="analysis-errors"><strong>{result.errors.length} dokumen gagal diekstrak</strong>{result.errors.map((e,idx)=><p key={`${e.document_id}-${idx}`}>{e.filename}: {e.error}</p>)}</div>:null}
-            {!working && !result && <div className="analysis-empty"><Activity size={35}/><strong>Belum ada hasil matching</strong><p>Unggah berkas permohonan, kemudian klik Mulai Analisis untuk melihat hasil verifikasi dokumen.</p><button className="button button-soft" onClick={()=>goTo('upload')}>Ke halaman Upload</button></div>}
+            {!working && !result && !backendError && <div className="analysis-empty"><Activity size={35}/><strong>Belum ada hasil matching</strong><p>Unggah berkas permohonan, kemudian klik Mulai Analisis untuk melihat hasil verifikasi dokumen.</p><button className="button button-soft" onClick={()=>goTo('upload')}>Ke halaman Upload</button></div>}
             <div className="matching-sections">
               {visibleMatchingSections.map((s, i) => <MatchingSection key={`${filter}:${s.id}`} section={s} search={query} filter={filter} onRowClick={(row, section) => setSelectedDetail({row, section})} expandedByDefault={i === 0} />)}
               {result && visibleMatchingSections.length === 0 && <div className="matching-filter-empty">Tidak ada field dengan status atau kata kunci yang dipilih.</div>}
@@ -868,6 +890,40 @@ function App() {
         </section>
       </div>
     </main>
+    <dialog ref={manualDialog} className="reset-dialog manual-upload-dialog" aria-labelledby="manual-upload-title" aria-describedby="manual-upload-description">
+      <h2 id="manual-upload-title">Tambah ke Kategori</h2>
+      <p id="manual-upload-description">Pilih kategori, lalu tambahkan berkas ke daftar dokumen.</p>
+      <label className="manual-category-label" htmlFor="manual-category">Kategori Dokumen</label>
+      <select id="manual-category" className="table-category-select" autoFocus value={manualCategory} disabled={working || savingCategory} onChange={event => setManualCategory(event.target.value)}>
+        <option value="" disabled>Pilih kategori</option>
+        {CATEGORIES.map(category => category.requiresSubtype ? (
+          <optgroup key={category.id} label={category.name}>
+            {PERSONNEL_TYPES.map(subtype => <option key={subtype} value={`personel:${subtype}`}>Personel: {subtype}</option>)}
+          </optgroup>
+        ) : <option key={category.id} value={category.id}>{category.name}</option>)}
+      </select>
+      <input ref={manualInput} hidden type="file" multiple accept=".pdf,.jpg,.jpeg,.png,.bmp,.webp,.tif,.tiff,.docx" onChange={event => {
+        if (event.target.files?.length && manualCategory) {
+          const isPersonnel = manualCategory.startsWith('personel:');
+          addFiles(isPersonnel ? 'personel' : manualCategory as CategoryId, event.target.files, isPersonnel ? manualCategory.slice('personel:'.length) : undefined);
+          manualDialog.current?.close();
+          setShowUnclassified(false);setUploadSearch('');
+        }
+        event.target.value = '';
+      }}/>
+      <div className="reset-dialog-actions">
+        <button className="button button-soft" type="button" onClick={() => manualDialog.current?.close()}>Batal</button>
+        <button className="button button-primary" type="button" disabled={!manualCategory || working || savingCategory} onClick={() => manualInput.current?.click()}><UploadCloud size={17}/> Pilih Berkas</button>
+      </div>
+    </dialog>
+    <dialog ref={resetDialog} className="reset-dialog" aria-labelledby="reset-dialog-title" aria-describedby="reset-dialog-description">
+      <h2 id="reset-dialog-title">Mulai evaluasi baru?</h2>
+      <p id="reset-dialog-description">Data unggahan dan hasil analisis pada sesi ini akan dikosongkan untuk memulai evaluasi instansi berikutnya.</p>
+      <div className="reset-dialog-actions">
+        <button className="button button-soft" autoFocus onClick={() => resetDialog.current?.close()}>Batal</button>
+        <button className="button button-primary" disabled={working || savingCategory} onClick={resetApplication}>Mulai Evaluasi Baru</button>
+      </div>
+    </dialog>
     <DetailPanel selected={selectedDetail} close={() => setSelectedDetail(null)} openEvidence={openEvidence} openRelated={(category) => { goTo('dokumen'); announce('info', `Cari dokumen kategori ${categoryById(category)?.name} pada daftar file yang diunggah.`); }} />
     {toast && <div className={`toast toast-${toast.tone}`} role="status"><span className="toast-icon">{toast.tone === 'success' ? <Check size={18}/> : toast.tone === 'warning' ? <AlertCircle size={18}/> : <Info size={18}/>}</span><p>{toast.message}</p><button className="icon-button" onClick={() => setToast(null)} aria-label="Tutup pesan"><X size={16}/></button></div>}
   </div>;

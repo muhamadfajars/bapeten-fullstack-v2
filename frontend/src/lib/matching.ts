@@ -1,4 +1,18 @@
-import type {MatchSection} from '../types/models';
+import type {CategoryId, MatchSection} from '../types/models';
+
+const MATCHING_CATEGORY_ORDER: readonly CategoryId[] = [
+  'proteksi', 'manajemen', 'personel', 'tld', 'teknis', 'spesifikasi',
+  'label', 'impor', 'perawatan', 'kesesuaian', 'fungsi', 'paparan', 'kebocoran',
+];
+const categoryRank = new Map(MATCHING_CATEGORY_ORDER.map((category, index) => [category, index]));
+
+export function sortMatchingSections(sections: readonly MatchSection[]): MatchSection[] {
+  // Keep the server result intact, including row order and sections within each category.
+  return [...sections].sort((a, b) =>
+    (categoryRank.get(a.category) ?? MATCHING_CATEGORY_ORDER.length) -
+    (categoryRank.get(b.category) ?? MATCHING_CATEGORY_ORDER.length));
+}
+
 export function matchingTotals(sections:MatchSection[]) {
   const rows=sections.flatMap(x=>x.rows);
   const match=rows.filter(x=>x.status==='MATCH').length;

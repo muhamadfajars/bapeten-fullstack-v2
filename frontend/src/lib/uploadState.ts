@@ -15,3 +15,14 @@ export function classificationBlocker(items: UploadItem[]): string | null {
   if (unknown) return `${unknown} dokumen berstatus Perlu Pilih Kategori. Pilih kategori sebelum memulai analisis.`;
   return null;
 }
+
+export function analysisBlocker(items: UploadItem[]): string | null {
+  if (!items.length) return 'Unggah 1 Formulir Permohonan dan minimal 1 dokumen pendukung.';
+  const classification = classificationBlocker(items);
+  if (classification) return classification;
+  const forms = items.filter(item => item.category === 'formulir').length;
+  if (!forms) return 'Tambahkan 1 Formulir Permohonan sebagai acuan.';
+  if (forms > 1) return 'Gunakan tepat 1 Formulir Permohonan sebagai acuan.';
+  if (items.length < 2) return 'Tambahkan minimal 1 dokumen pendukung.';
+  return null;
+}
