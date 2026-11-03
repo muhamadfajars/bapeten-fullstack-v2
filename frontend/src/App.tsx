@@ -111,10 +111,9 @@ function ScoreBadge({ status }: { status: MatchStatus }) {
   return <span className={`status-chip status-${status.toLowerCase()}`}><span className="status-dot" />{status}</span>;
 }
 
-function Accordion({ title, subtitle, icon, children, initialOpen = false, count }: { title: string; subtitle?: string; icon?: ReactNode; children: ReactNode; initialOpen?: boolean; count?: ReactNode }) {
-  const [open, setOpen] = useState(initialOpen);
+function Accordion({ title, subtitle, icon, children, open, onToggle, count }: { title: string; subtitle?: string; icon?: ReactNode; children: ReactNode; open: boolean; onToggle: () => void; count?: ReactNode }) {
   return <div className={`accordion ${open ? 'accordion-open' : ''}`}>
-    <button className="accordion-toggle" type="button" onClick={() => setOpen(!open)} aria-expanded={open}>
+    <button className="accordion-toggle" type="button" onClick={onToggle} aria-expanded={open}>
       <div className="accordion-label">{icon && <span className="accordion-icon">{icon}</span>}<span><strong>{title}</strong>{subtitle && <small>{subtitle}</small>}</span></div>
       <div className="accordion-right">{count}<ChevronDown className="accordion-chevron" size={19} /></div>
     </button>
@@ -236,7 +235,7 @@ function DetailPanel({ selected, close, openRelated, openEvidence }: { selected:
       <DataPair label="Hasil pembacaan dokumen" value={row.observed} />
       <DataPair label="Kemiripan karakter / skor field" value={row.score === null ? 'Tidak tersedia' : `${row.score.toFixed(1)}%`} />
       <DataPair label="Halaman bukti" value={row.page ? `Halaman ${row.page}` : 'Tidak dicatat pada hasil pemeriksaan'} />
-      {row.note && <div className="detail-note"><Info size={17} />{row.note}</div>}
+      {row.note && <div className="detail-note"><Info size={17} />{row.note.replaceAll('v43_address_components', 'Alamat dibandingkan berdasarkan komponen alamat yang terbaca pada dokumen.')}</div>}
       <div className="detail-divider" />
       {row.document_id && row.detail?.type === 'approval' && <ApprovalEvidence row={row}/>}
       {row.document_id && row.detail?.type !== 'approval' && <button className="button button-soft button-full" type="button" onClick={() => openEvidence(row.document_id!,row.page)}><ExternalLink size={16}/> Buka PDF sumber {row.page ? `· Halaman ${row.page}` : ''}</button>}
@@ -282,7 +281,20 @@ function App() {
   const [filter, setFilter] = useState<Filter>('ALL');
   const [selectedDetail, setSelectedDetail] = useState<{ row: MatchRow; section: MatchSection } | null>(null);
   const [docSearch, setDocSearch] = useState('');
-  const formOpen = { facility: true, personnel: false, equipment: false };
+  const [formOpen, setFormOpen] = useState({ facility: true, personnel: true, equipment: true });
+  const formNeedsReview = useMemo(() => {
+    const missing = (value?: string) => !value?.trim() || ['—', '-'].includes(value.trim());
+    return {
+      facility: Boolean(displayForm && (missing(displayForm.facility) || missing(displayForm.address))),
+      personnel: Boolean(displayForm && (!displayForm.personnel.length || displayForm.personnel.some(p => missing(p.name) || missing(p.role)))),
+      equipment: Boolean(displayForm && (!displayForm.equipment.length || displayForm.equipment.some(e => [e.merk_unit, e.tipe_unit, e.nomor_seri_unit, e.merk_tabung, e.tipe_tabung, e.nomor_seri_tabung].some(missing)))),
+    };
+  }, [displayForm]);
+  useEffect(() => {
+    setFormOpen({ facility: true, personnel: true, equipment: true });
+  }, [formNeedsReview]);
+  const toggleForm = (section: keyof typeof formOpen) => setFormOpen(previous => ({ ...previous, [section]: !previous[section] }));
+  const reviewBadge = (needsReview: boolean) => needsReview ? <span className="form-review-badge">Perlu diperiksa</span> : undefined;
   const globalInput = useRef<HTMLInputElement>(null);
   const resetDialog = useRef<HTMLDialogElement>(null);
   const manualDialog = useRef<HTMLDialogElement>(null);
@@ -810,7 +822,7 @@ function App() {
               <div className="classification-disclaimer">
                 <AlertCircle size={16} />
                 <span>
-                  <strong>Catatan Evaluator:</strong> Periksa kesesuaian kategori sebelum analisis.
+                  <strong>Catatan Evaluator:</strong> Periksa kembali kategori setiap dokumen sebelum memulai analisis.
                 </span>
               </div>
             )}
@@ -836,14 +848,19 @@ function App() {
           <SectionHeading eyebrow="LANGKAH 02" title="Formulir Permohonan" description="Ringkasan data acuan untuk mencocokkan informasi pada dokumen pendukung." action={<span className="outline-label"><Info size={14}/>{displayForm ? "Data tersedia" : "Belum dianalisis"}</span>} />
           <div className="form-overview-grid"><div className="form-stat"><span className="form-stat-icon tone-blue"><UsersRound size={25}/></span><div><small>Total Personel</small><strong>{(displayForm?.personnel.length ?? 0)}</strong><span>Data formulir</span></div></div>
             <div className="form-stat"><span className="form-stat-icon tone-green"><Layers3 size={25}/></span><div><small>Total Peralatan</small><strong>{(displayForm?.equipment.length ?? 0)}</strong><span>Pesawat sinar-X</span></div></div></div>
+          {Object.values(formNeedsReview).some(Boolean) && <div className="form-controls">
+            <span>Data belum lengkap terbaca. Periksa kembali dengan dokumen formulir.</span>
+          </div>}
           <div className="surface form-surface">
-            <Accordion title="Informasi Instansi" icon={<Home size={20}/>} initialOpen={formOpen.facility}>
+            <Accordion title="Informasi Instansi" icon={<Home size={20}/>} open={formOpen.facility} onToggle={() => toggleForm('facility')} count={reviewBadge(formNeedsReview.facility)}>
               <div className="facility-info"><DataPair label="Nama fasilitas" value={displayForm?.facility || 'Belum ada hasil formulir'}/><DataPair label="Alamat proyek" value={displayForm?.address || '—'}/></div>
             </Accordion>
-            <Accordion title="Data Personel" icon={<UsersRound size={20}/>} initialOpen={formOpen.personnel}>
+            <Accordion title="Data Personel" icon={<UsersRound size={20}/>} open={formOpen.personnel} onToggle={() => toggleForm('personnel')} count={reviewBadge(formNeedsReview.personnel)}>
+              {!displayForm?.personnel.length && <p>{displayForm ? 'Data personel belum terbaca. Periksa dokumen formulir.' : 'Belum ada hasil analisis formulir.'}</p>}
               <div className="list-data">{(displayForm?.personnel ?? []).map((p, i) => <div key={`${p.name}-${i}`} className="list-data-row"><span className="numbered">{i + 1}</span><div><strong>{p.name}</strong><small>{p.role?.trim() ? `Keahlian: ${p.role}` : 'Keahlian tidak tercantum dalam formulir'}</small></div></div>)}</div>
             </Accordion>
-            <Accordion title="Data Peralatan" icon={<Layers3 size={20}/>} initialOpen={formOpen.equipment}>
+            <Accordion title="Data Peralatan" icon={<Layers3 size={20}/>} open={formOpen.equipment} onToggle={() => toggleForm('equipment')} count={reviewBadge(formNeedsReview.equipment)}>
+              {!displayForm?.equipment.length && <p>{displayForm ? 'Data peralatan belum terbaca. Periksa dokumen formulir.' : 'Belum ada hasil analisis formulir.'}</p>}
               <div className="equipments-grid">{(displayForm?.equipment ?? []).map((e) => <article key={e.label} className="equipment-card"><div className="equipment-head"><strong>{e.label}</strong><span>{e.tipe_unit}</span></div>
                 <DataPair label="Merek unit" value={e.merk_unit}/><DataPair label="Nomor seri unit" value={e.nomor_seri_unit}/><DataPair label="Merek tabung" value={e.merk_tabung}/><DataPair label="Tipe tabung" value={e.tipe_tabung}/><DataPair label="Nomor seri insersi tabung" value={e.nomor_seri_tabung}/>
               </article>)}</div>

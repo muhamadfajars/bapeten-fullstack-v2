@@ -32,6 +32,7 @@ def _status(v):
     return {'VALID':'MATCH','ACTIVE':'MATCH','DETECTED':'MATCH','INCOMPLETE':'MISSING','EXPIRED':'MISMATCH'}.get(s,s if s in {'MATCH','REVIEW','MISMATCH','MISSING'} else 'REVIEW')
 
 def _row(field,expected,observed='',status='REVIEW',score=None,page=None,note='',document_id=None,quote='',detail=None):
+    note = _text(note).replace('v43_address_components', 'Alamat dibandingkan berdasarkan komponen alamat yang terbaca pada dokumen.')
     if re.search(r'(?i)alamat|tempat praktik', _text(field)):
         from .address_cleanup_v052 import clean_address_evidence
         observed = clean_evidence(clean_address_evidence(observed), 'address')
