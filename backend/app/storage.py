@@ -72,6 +72,15 @@ def add_document(aid,category,subtype,name,size,sha,disk_filename):
         con.execute('UPDATE applications SET updated=? WHERE id=?',(now,aid))
     return did
 
+def update_document_category(did, aid, category, subtype):
+    with _LOCK, db() as con:
+        con.execute('UPDATE documents SET category=?,subtype=? WHERE id=? AND app_id=?',
+                    (category, subtype, did, aid))
+        con.execute('UPDATE applications SET updated=? WHERE id=?', (time.time(), aid))
+        # File hashes do not change when categories change: invalidate old results explicitly.
+        con.execute("UPDATE jobs SET result=NULL WHERE app_id=? AND status='completed'", (aid,))
+
+
 def delete_document(did,aid):
     d=document(did,aid)
     if not d:return False
@@ -112,6 +121,10 @@ def latest_result(aid):
 
 def get_job_latest_running(aid):
     with db() as con:return row(con,"SELECT id,status FROM jobs WHERE app_id=? AND status IN ('queued','running') ORDER BY created DESC LIMIT 1",(aid,))
+
+def get_latest_job(aid):
+    with db() as con:
+        return row(con, "SELECT * FROM jobs WHERE app_id=? ORDER BY created DESC, rowid DESC LIMIT 1", (aid,))
 
 init_db()
 

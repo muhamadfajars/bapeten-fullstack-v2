@@ -6,6 +6,7 @@ Layer 2: Content inspection from the first few pages (digital text or fast OCR o
 from __future__ import annotations
 
 import io
+import json
 import os
 import re
 from pathlib import Path
@@ -32,55 +33,12 @@ CATEGORIES = (
     'kesesuaian', 'fungsi', 'paparan', 'kebocoran'
 )
 
-# Layer 1: Regex on filename
-# Ordered by specificity.
+# One source for browser and backend filename rules. Keep this JSON with the
+# backend package; the frontend bundles the same file during its build.
+_RULES = json.loads(Path(__file__).with_name('classification_rules.json').read_text(encoding='utf-8'))
 NAME_PATTERNS: list[tuple[str, str, Optional[str]]] = [
-    # Formulir
-    (r'(?i)formulir|form[\s_-]*permohonan|ktun.*permohonan|permohonan[\s_-]*\d{5,7}', 'formulir', None),
-    
-    # Proteksi
-    (r'(?i)program[\s_-]*proteksi|proteksi[\s_-]*radiasi|ppkr|keselamatan[\s_-]*radiasi', 'proteksi', None),
-    
-    # Perawatan
-    (r'(?i)program[\s_-]*perawatan|perawatan[\s_-]*pesawat|maintenance[\s_-]*program|pemeliharaan', 'perawatan', None),
-    
-    # Manajemen
-    (r'(?i)sistem[\s_-]*manajemen|manajemen[\s_-]*fasilitas|quality[\s_-]*management', 'manajemen', None),
-    
-    # Teknis
-    (r'(?i)dokumen[\s_-]*teknis|rencana[\s_-]*teknis|gedung[\s_-]*penahan|penahan[\s_-]*radiasi|denah[\s_-]*ruang', 'teknis', None),
-    
-    # Personel - Specific Subtypes
-    (r'(?i)surat[\s_-]*keterangan[\s_-]*kerja|skk\b', 'personel', 'Surat Keterangan Kerja'),
-    (r'(?i)surat[\s_-]*penunjukan[\s_-]*tugas|sk[\s_-]*penunjukan|pengangkatan.*ppr', 'personel', 'Surat Penunjukan Tugas'),
-    (r'(?i)sprint|surat[\s_-]*perintah|surat[\s_-]*tugas', 'personel', 'Surat Perintah'),
-    (r'(?i)sertifikat.*(?:kompetensi|ppr|lulus)', 'personel', 'Sertifikat Kompetensi'),
-    (r'(?i)sikr\b|surat[\s_-]*izin[\s_-]*kerja', 'personel', 'Surat Izin Kerja'),
-    (r'(?i)data[\s_-]*sib|kartu[\s_-]*sib|sib\b|izin[\s_-]*bekerja', 'personel', 'Surat Izin Bekerja (SIB)'),
-    (r'(?i)sipr?\b|dr\.?[\s_-]*[a-z]+[\s_-]*sp\.?rad|surat[\s_-]*izin[\s_-]*prakt?ik', 'personel', 'Surat Izin Praktik (SIP)'),
-    (r'(?i)evaluasi[\s_-]*dosis|zero[\s_-]*check|zerocheck|zero[\s_-]*cek', 'personel', 'Evaluasi Dosis / Zero Check'),
-    
-    # TLD / Petugas TLD
-    (r'(?i)dosis[\s_-]*awal|laporan[\s_-]*dosis|petugas[\s_-]*tld|tld\b|dosimeter|osl\b', 'tld', None),
-    
-    # Spesifikasi
-    (r'(?i)spesifikasi|brochure|brosur|manual[\s_-]*book|datasheet|data[\s_-]*sheet', 'spesifikasi', None),
-    
-    # Impor
-    (r'(?i)persetujuan[\s_-]*impor|persetujuan[\s_-]*import|izin[\s_-]*impor|izin[\s_-]*import', 'impor', None),
-    
-    # Kesesuaian
-    (r'(?i)uji[\s_-]*kesesuaian|sertifikat[\s_-]*uk|ktun.*uk|lhu\b|resume[\s_-]*bapeten', 'kesesuaian', None),
-    
-    # Uji Fungsi / Acceptance
-    (r'(?i)uji[\s_-]*fungsi|ujifungsi|acceptance[\s_-]*test|accepatance|caf\b|bauf\b|bast\b|service[\s_-]*report|installation.*record|installation.*verification', 'fungsi', None),
-    
-    # Paparan & Kebocoran
-    (r'(?i)kebocoran[\s_-]*tabung|pengukuran[\s_-]*kebocoran|uji[\s_-]*kebocoran', 'kebocoran', None),
-    (r'(?i)pengukuran[\s_-]*paparan|paparan[\s_-]*radiasi|upar\b|uji[\s_-]*paparan|survey[\s_-]*radiasi', 'paparan', None),
-    
-    # Label (unit / tabung / generator / plate)
-    (r'(?i)foto[\s_-]*label|label[\s_-]*generator|label[\s_-]*tabung|label[\s_-]*unit|sn[\s_-]*unit|foto[\s_-]*tube|foto[\s_-]*nomor[\s_-]*seri|foto[\s_-]*keseluruhan', 'label', None),
+    (f"(?{_RULES['flags']}){rule['pattern']}", rule['category'], rule['subtype'])
+    for rule in _RULES['filenamePatterns']
 ]
 
 # Layer 2: Regex on extracted text content
@@ -92,7 +50,7 @@ CONTENT_PATTERNS: list[tuple[str, str, Optional[str]]] = [
     (r'(?i)PROGRAM\s+PROTEKSI\s+DAN\s+KESELAMATAN\s+RADIASI|PROGRAM\s+PROTEKSI\s+RADIASI', 'proteksi', None),
     
     # Perawatan
-    (r'(?i)PROGRAM\s+PERAWATAN\s+PESAWAT|PROGRAM\s+PERAWATAN\s+DAN\s+PEMELIHARAAN', 'perawatan', None),
+    (r'(?i)(?:DOKUMEN\s+)?PROGRAM\s+PERAWATAN\b|DOKUMEN\s+PERAWATAN\b', 'perawatan', None),
     
     # Manajemen
     (r'(?i)SISTEM\s+MANAJEMEN\s+FASILITAS|SISTEM\s+MANAJEMEN\s+KESELAMATAN|SISTEM\s+MANAJEMEN\b|ASSURANCE\s+QUALIT|QUALITY\s+SYSTEM|SERTIFIKAT\s+MUTU', 'manajemen', None),
@@ -102,7 +60,7 @@ CONTENT_PATTERNS: list[tuple[str, str, Optional[str]]] = [
     
     # Personel
     (r'(?i)SURAT\s+KETERANGAN\s+KERJA', 'personel', 'Surat Keterangan Kerja'),
-    (r'(?i)SURAT\s+PENUNJUKAN\s+TUGAS|SURAT\s+KEPUTUSAN\s+PENUNJUKAN|PENGANGKATAN\s+PETUGAS\s+PROTEKSI', 'personel', 'Surat Penunjukan Tugas'),
+    (r'(?i)SURAT\s+PENUNJUKAN\s+(?:TUGAS|(?:SEBAGAI\s+)?(?:PPR\b|PETUGAS\s+PROTEKSI(?:\s+RADIASI)?))|PENETAPAN\s+PEKERJA\s+RADIASI|PENUNJUKAN\s+(?:PPR\b|PETUGAS\s+PROTEKSI\s+RADIASI)|SURAT\s+KEPUTUSAN\s+PENUNJUKAN|PENGANGKATAN\s+PETUGAS\s+PROTEKSI', 'personel', 'Surat Penunjukan Tugas'),
     (r'(?i)SURAT\s+PERINTAH', 'personel', 'Surat Perintah'),
     (r'(?i)SERTIFIKAT\s+KOMPETENSI|SERTIFIKAT\s+LULUS\s+UJI\s+KOMPETENSI', 'personel', 'Sertifikat Kompetensi'),
     (r'(?i)SURAT\s+IZIN\s+KERJA|SIKR\b', 'personel', 'Surat Izin Kerja'),
@@ -131,6 +89,11 @@ CONTENT_PATTERNS: list[tuple[str, str, Optional[str]]] = [
 ]
 
 
+# Generic mentions must not outweigh an explicit document title (e.g. a program
+# filename mentioning SIP, or a zero-check report mentioning TLD).
+WEAK_NAME_HINTS = set(_RULES['weakNameHints'])
+
+
 def classify_by_filename(filename: str) -> Tuple[Optional[str], Optional[str], Optional[str]]:
     """Match filename pattern against known document rules.
 
@@ -138,10 +101,19 @@ def classify_by_filename(filename: str) -> Tuple[Optional[str], Optional[str], O
         (category, subtype, reason) or (None, None, None)
     """
     clean_name = Path(filename).name
+    matches = []
     for pattern, cat, subtype in NAME_PATTERNS:
         m = re.search(pattern, clean_name)
         if m:
-            return cat, subtype, f'Pola nama berkas cocok: {m.group(0)}'
+            hint = re.sub(r'[\s_-]+', ' ', m.group(0)).lower().strip()
+            matches.append((cat, subtype, m.group(0), hint not in WEAK_NAME_HINTS))
+    strong = [match for match in matches if match[3]]
+    candidates = strong or matches
+    if len({(cat, subtype) for cat, subtype, _, _ in candidates}) > 1:
+        return None, None, 'Nama berkas mengarah ke beberapa kategori. Perlu Pilih Kategori.'
+    if candidates:
+        cat, subtype, evidence, _ = candidates[0]
+        return cat, subtype, f'Pola nama berkas cocok: {evidence}'
     return None, None, None
 
 
@@ -188,10 +160,20 @@ def classify_by_content(text: str) -> Tuple[Optional[str], Optional[str], Option
     """
     if not text or len(text.strip()) < 10:
         return None, None, None
+    candidates = {}
+    # Require a heading at the start of a line. Mentions within narrative text
+    # are not enough evidence to choose a document category.
     for pattern, cat, subtype in CONTENT_PATTERNS:
-        m = re.search(pattern, text)
-        if m:
-            return cat, subtype, f'Teks halaman awal cocok: {m.group(0)}'
+        for m in re.finditer(pattern, text):
+            line_start = text.rfind('\n', 0, m.start()) + 1
+            prefix = text[line_start:m.start()]
+            if re.fullmatch(r'\s*(?:DOKUMEN\s+)?', prefix, re.IGNORECASE):
+                candidates[(cat, subtype)] = m.group(0)
+    if len(candidates) == 1:
+        (cat, subtype), evidence = next(iter(candidates.items()))
+        return cat, subtype, f'Judul dokumen cocok: {evidence}'
+    if candidates:
+        return None, None, 'Judul dokumen mengarah ke beberapa kategori. Perlu Pilih Kategori.'
     return None, None, None
 
 
@@ -216,7 +198,8 @@ def classify_document(filename: str, file_bytes: Optional[bytes] = None) -> dict
         }
 
     # Layer 2
-    if file_bytes and len(file_bytes) > 0:
+    reason2 = None
+    if not reason1 and file_bytes and len(file_bytes) > 0:
         text = extract_document_text(clean_name, file_bytes, max_pages=3)
         cat2, sub2, reason2 = classify_by_content(text)
         if cat2:
@@ -235,7 +218,7 @@ def classify_document(filename: str, file_bytes: Optional[bytes] = None) -> dict
         'category': 'unknown',
         'subtype': None,
         'layer': 0,
-        'reason': 'Dokumen belum teridentifikasi otomatis, silakan tentukan kategori',
+        'reason': reason1 or reason2 or 'Dokumen belum teridentifikasi otomatis, silakan tentukan kategori',
         'confidence': 0.0
     }
 

@@ -11,11 +11,13 @@ import bapetenLogo from './assets/bapeten-logo.png';
 import { CATEGORIES, categoryById } from './data/categories';
 import { matchingTotals } from './lib/matching';
 import {
-  newApplication, uploadFile, deleteFile, analyze, jobStatus, fetchResults, listFiles,
-  fetchPreviewFile, fetchEvidencePage
+  newApplication, uploadFile, deleteFile, analyze, jobStatus, latestJob, jobResults, listFiles,
+  fetchPreviewFile, fetchEvidencePage, updateFileCategory
 } from './api';
 import type { AnalysisResult, AnalysisJob } from './api';
 import { classifyFile, classifyByFilename } from './lib/classifier';
+import { monitorAnalysis, retryRead } from './lib/analysisMonitor';
+import { applyClassification, classificationBlocker } from './lib/uploadState';
 import Glyph from './components/Glyph';
 import type { CategoryId, MatchRow, MatchSection, MatchStatus, UploadItem } from './types/models';
 import { PERSONNEL_TYPES } from './types/models';
@@ -278,13 +280,20 @@ function App() {
   const [applicationId,setApplicationId] = useState<string|null>(sessionStorage.getItem('bapeten_application_id'));
   const [result,setResult] = useState<AnalysisResult|null>(null);
   const [job,setJob] = useState<AnalysisJob|null>(null);
-  const [working,setWorking] = useState(false);
+  const [working,setWorking] = useState(Boolean(applicationId));
+  const [reconnecting, setReconnecting] = useState(false);
+  const submitting = useRef(false);
+  const monitorController = useRef<AbortController | null>(null);
+  useEffect(() => () => monitorController.current?.abort(), []);
+  const [savingCategory, setSavingCategory] = useState(false);
+  const categorySaveLock = useRef(false);
   const [syncCount,setSyncCount] = useState(0);
   const [backendError,setBackendError] = useState('');
   const displayForm = result?.form_reference ?? null;
   const displaySections = result?.matching_sections ?? [];
   const [mobileNav, setMobileNav] = useState(false);
   const [items, setItems] = useState<UploadItem[]>([]);
+  const [showUnclassified, setShowUnclassified] = useState(false);
   const [expandedUpload, setExpandedUpload] = useState<CategoryId | null>(null);
   const [dragged, setDragged] = useState(false);
   const [toast, setToast] = useState<Toast>(null);
@@ -299,7 +308,17 @@ function App() {
   // Hide entire document panels that have no rows for the selected filter.
   const visibleMatchingSections = useMemo(() => displaySections.filter(section =>
     section.rows.some(row => rowMatchesFilter(row, filter, query))), [displaySections, filter, query]);
-  const categoryCount = useMemo(() => new Set(items.map((f) => f.category)).size, [items]);
+  const categoryCount = useMemo(() => new Set(items.filter(f => f.category !== 'unknown').map(f => f.category)).size, [items]);
+  const classificationMessage = classificationBlocker(items);
+  const unclassifiedCount = items.filter(item => item.category === 'unknown').length;
+  const reviewItems = useMemo(() => {
+    const unclassified = items.filter(item => item.category === 'unknown');
+    if (showUnclassified && unclassified.length) return unclassified;
+    return [...unclassified, ...items.filter(item => item.category !== 'unknown')];
+  }, [items, showUnclassified]);
+  useEffect(() => {
+    if (unclassifiedCount === 0) setShowUnclassified(false);
+  }, [unclassifiedCount]);
   const formCount = useMemo(() => items.filter((f) => f.category === 'formulir').length, [items]);
 
   useEffect(() => () => { if (toastRef.current !== null) window.clearTimeout(toastRef.current); }, []);
@@ -315,70 +334,97 @@ function App() {
   }, []);
 
 
+  const followAnalysis = useCallback((aid: string, initial: AnalysisJob, signal: AbortSignal) =>
+    monitorAnalysis(initial, {
+      signal, readJob: () => jobStatus(aid, initial.id, signal),
+      readResult: () => jobResults(aid, initial.id, signal),
+      onJob: setJob, onConnection: setReconnecting,
+    }), []);
+
   useEffect(() => {
-    if(!applicationId || working)return;
-    let cancelled=false;
-    listFiles(applicationId).then((r)=>{
-      if(cancelled)return;
-      setItems(old=>{
-        const existingServerIds=new Set(old.filter(f=>f.serverId).map(f=>f.serverId));
-        const existingKeys=new Set(old.map(f=>`${f.category}:${f.name}:${f.size}`));
-        const newDocs=r.documents.filter(d=>!existingServerIds.has(d.id) && !existingKeys.has(`${d.category}:${d.filename}:${d.size}`));
-        return [...old,...newDocs.map(d=>({id:d.id,serverId:d.id,name:d.filename,size:d.size,category:d.category,subtype:d.subtype,sha256:d.sha256,addedAt:new Date(d.uploaded*1000).toISOString()}))];
+    if (!applicationId || submitting.current) return;
+    const aid = applicationId;
+    const controller = new AbortController();
+    monitorController.current = controller;
+    const { signal } = controller;
+    setWorking(true);
+    setBackendError('');
+    goTo('matching');
+    const read = <T,>(fn: () => Promise<T>) => retryRead(fn, signal, setReconnecting);
+    void (async () => {
+      const r = await read(() => listFiles(aid, signal));
+      setItems(old => {
+        const ids = new Set(old.map(f => f.serverId));
+        return [...old, ...r.documents.filter(d => !ids.has(d.id)).map(d => ({
+          id: d.id, serverId: d.id, name: d.filename, size: d.size, category: d.category,
+          subtype: d.subtype, sha256: d.sha256, addedAt: new Date(d.uploaded * 1000).toISOString(),
+        }))];
       });
-      fetchResults(applicationId).then(x=>{
-        if(cancelled)return;
-        const old=JSON.stringify([...x.document_fingerprint].sort((a,b)=>a[0].localeCompare(b[0])));
-        const current=JSON.stringify(r.documents.map(d=>[d.id,d.sha256]).sort((a,b)=>a[0].localeCompare(b[0])));
-        if(old===current) setResult(x);
-      }).catch(()=>{});
-    }).catch(()=>{});
-  },[applicationId,working]);
+      const { job: latest } = await read(() => latestJob(aid, signal));
+      if (!latest) return;
+      setResult(null);
+      const analyzed = await followAnalysis(aid, latest, signal).catch(error => {
+        // An already completed result can be invalidated by a category correction.
+        if (latest.status === 'completed' && error?.status === 404) return null;
+        throw error;
+      });
+      if (!analyzed) return;
+      const fingerprint = (pairs: string[][]) => JSON.stringify([...pairs].sort((a,b) => a[0].localeCompare(b[0])));
+      if (fingerprint(analyzed.document_fingerprint) === fingerprint(r.documents.map(d => [d.id, d.sha256]))) {
+        setResult(analyzed);
+      }
+    })().catch(error => {
+      if (signal.aborted) return;
+      setBackendError(error instanceof Error ? error.message : 'Gagal memulihkan status analisis');
+    }).finally(() => {
+      if (!signal.aborted) { setWorking(false); setReconnecting(false); }
+    });
+    return () => controller.abort();
+  }, [applicationId, followAnalysis, goTo]);
 
   const runAnalysis = async () => {
-    if(working) return;
+    if(working || submitting.current || categorySaveLock.current) return;
+    if(classificationMessage) {announce('warning', classificationMessage);goTo('upload');return;}
     if(!items.some((x)=>x.category==='formulir')) {announce('warning','Unggah satu Formulir Permohonan terlebih dahulu.');goTo('upload');return;}
     if(items.filter((x)=>x.category==='formulir').length!==1) {announce('warning','Wajib tepat satu Formulir Permohonan sebagai acuan.');return;}
     if(items.length<2) {announce('warning','Tambahkan sekurangnya satu dokumen pendukung.');return;}
-    setBackendError('');setWorking(true);setResult(null);
+    submitting.current = true;
+    monitorController.current?.abort();
+    const controller = new AbortController();
+    monitorController.current = controller;
+    setBackendError('');setWorking(true);setResult(null);setJob(null);setReconnecting(false);
     try {
       let aid=applicationId;
       if(!aid){const data=await newApplication();aid=data.application_id;setApplicationId(aid);sessionStorage.setItem('bapeten_application_id',aid);}
       const pending=items.filter((x)=>!x.serverId);
       for(let i=0;i<pending.length;i++) {
         const item=pending[i];
+        if(item.category === 'unknown') throw new Error('Pilih kategori untuk semua dokumen terlebih dahulu.');
         if(!item.file) throw new Error('File lokal telah hilang. Tambahkan ulang dokumen.');
         setSyncCount(i+1);
         const uploaded=await uploadFile(aid,item.category,item.file,item.subtype);
         setItems((old)=>old.map((x)=>x.id===item.id?{...x,serverId:uploaded.document.id,sha256:uploaded.document.sha256}:x));
       }
       const started=await analyze(aid);
-      setJob({id:started.job_id,status:'queued',progress:0,message:'Menunggu antrean analisis',error:null});
+      const initial: AnalysisJob = {id:started.job_id,status:'queued',progress:0,message:'Menunggu antrean analisis',error:null};
       goTo('matching');
-      let completed=false;
-      for(let i=0;i<1800;i++) {
-        await new Promise((resolve)=>window.setTimeout(resolve,1500));
-        const next=await jobStatus(aid,started.job_id);
-        setJob(next);
-        if(next.status==='failed')throw new Error(next.error || 'Proses analisis gagal');
-        if(next.status==='completed'){completed=true;break;}
-      }
-      if(!completed)throw new Error('Waktu proses analisis melebihi batas. Silakan coba kembali.');
-      const analyzed=await fetchResults(aid);
+      const analyzed = await followAnalysis(aid, initial, controller.signal);
       setResult(analyzed);
       if(analyzed.errors?.length)announce('warning',`${analyzed.errors.length} dokumen gagal dianalisis. Lihat rincian pada halaman Hasil Matching.`);
       else announce('success','Analisis selesai. Hasil verifikasi dokumen berhasil diperbarui.');
     } catch(e) {
+      if (controller.signal.aborted) return;
       const message=e instanceof Error?e.message:'Gagal menjalankan analisis';
       setBackendError(message);announce('warning',message);
-    } finally {setWorking(false);setSyncCount(0);}
+    } finally {submitting.current=false;if (!controller.signal.aborted) {setWorking(false);setSyncCount(0);setReconnecting(false);}}
   };
   const resetApplication = () => {
+    if(working || categorySaveLock.current)return;
     if(!window.confirm('Buat permohonan baru? Daftar dokumen di tampilan ini akan dikosongkan.'))return;
     sessionStorage.removeItem('bapeten_application_id');setApplicationId(null);setItems([]);setResult(null);setJob(null);setBackendError('');setActive('upload');
   };
   const addFiles = useCallback((category: CategoryId, files: FileList | File[] | null, subtype?: string) => {
-    if (!files || !files.length) return;
+    if (working || categorySaveLock.current || !files || !files.length) return;
     const incoming = Array.from(files);
     const valid = incoming.filter((f) => SUPPORTED_EXTENSIONS.has(f.name.split('.').pop()?.toLowerCase() ?? '') && f.size <= MAX_FILE && f.size > 0);
     const invalid = incoming.length - valid.length;
@@ -405,10 +451,10 @@ function App() {
     });
     if (invalid) announce('warning', `${invalid} file ditolak. Gunakan PDF/gambar/DOCX, maksimal 40 MB per file.`);
     else announce('success', `File ditambahkan untuk kategori ${categoryById(category)?.name}.`);
-  }, [announce]);
+  }, [announce, working]);
 
   const handleBatchFiles = useCallback(async (files: FileList | File[] | null) => {
-    if (!files || !files.length) return;
+    if (working || categorySaveLock.current || !files || !files.length) return;
     const incoming = Array.from(files);
     const valid = incoming.filter((f) => SUPPORTED_EXTENSIONS.has(f.name.split('.').pop()?.toLowerCase() ?? '') && f.size <= MAX_FILE && f.size > 0);
     const invalid = incoming.length - valid.length;
@@ -418,7 +464,7 @@ function App() {
     const pendingLayer2: { item: UploadItem; file: File }[] = [];
 
     for (const file of valid) {
-      const duplicate = items.some((item) => item.name === file.name && item.size === file.size);
+      const duplicate = [...items, ...newItems].some((item) => item.name === file.name && item.size === file.size);
       if (duplicate) continue;
 
       const l1 = classifyByFilename(file.name);
@@ -440,9 +486,9 @@ function App() {
           id: ID(),
           name: file.name,
           size: file.size,
-          category: 'teknis',
+          category: 'unknown',
           detectedLayer: 0,
-          detectionReason: 'Menganalisis isi dokumen (Layer 2)...',
+          detectionReason: 'Sedang mengenali dokumen…',
           isClassifying: true,
           addedAt: new Date().toISOString(),
           file,
@@ -458,39 +504,49 @@ function App() {
     }
 
     setItems((old) => [...old, ...newItems]);
-    announce('success', `${newItems.length} berkas ditambahkan dan otomatis terklasifikasi.`);
+    announce(invalid ? 'warning' : 'info', `${newItems.length} berkas ditambahkan.${invalid ? ` ${invalid} file ditolak karena format atau ukuran tidak sesuai.` : ''}${pendingLayer2.length ? ' Pengenalan isi dokumen sedang berjalan.' : ''}`);
 
     // Trigger Layer 2 for pending items in background
     for (const { item, file } of pendingLayer2) {
       classifyFile(file).then((res) => {
         setItems((current) => current.map((it) => {
           if (it.id !== item.id) return it;
-          return {
-            ...it,
-            category: (res.category !== 'unknown' ? res.category : it.category) as CategoryId,
-            subtype: res.subtype || it.subtype,
-            detectedLayer: res.layer,
-            detectionReason: res.reason,
-            isClassifying: false,
-          };
+          return applyClassification(it, res);
         }));
       }).catch(() => {
-        setItems((current) => current.map((it) => it.id === item.id ? { ...it, isClassifying: false, detectionReason: 'Perlu konfirmasi kategori manual' } : it));
+        setItems((current) => current.map((it) => it.id === item.id ? applyClassification(it, { category: 'unknown', layer: 0, confidence: 0, reason: 'Pengenalan gagal. Silakan pilih kategori secara manual.' }) : it));
       });
     }
-  }, [items, announce]);
+  }, [items, announce, working]);
 
-  const updateItemCategory = (id: string, category: CategoryId, subtype?: string) => {
-    setItems((old) => old.map((it) => {
-      if (it.id !== id) return it;
-      const requiresSubtype = categoryById(category)?.requiresSubtype;
-      const actualSubtype = requiresSubtype ? (subtype || it.subtype || PERSONNEL_TYPES[0]) : undefined;
-      return { ...it, category, subtype: actualSubtype, detectedLayer: undefined, detectionReason: 'Dipilih manual oleh evaluator' };
-    }));
+  const updateItemCategory = async (id: string, category: CategoryId, subtype?: string) => {
+    if (working || categorySaveLock.current) return;
+    const item = items.find(it => it.id === id);
+    if (!item) return;
+    const actualSubtype = categoryById(category)?.requiresSubtype
+      ? (subtype || item.subtype || PERSONNEL_TYPES[0]) : undefined;
+    categorySaveLock.current = true;
+    setSavingCategory(true);
+    try {
+      if (item.serverId) {
+        if (!applicationId) throw new Error('Permohonan tidak tersedia. Muat ulang halaman.');
+        await updateFileCategory(applicationId, item.serverId, category, actualSubtype);
+      }
+      setItems(old => old.map(it => it.id === id ? {
+        ...it, category, subtype: actualSubtype, isClassifying: false,
+        detectedLayer: undefined, detectionReason: 'Dipilih manual oleh evaluator',
+      } : it));
+      setResult(null);
+    } catch (error) {
+      announce('warning', `Kategori gagal disimpan: ${error instanceof Error ? error.message : String(error)}`);
+    } finally {
+      categorySaveLock.current = false;
+      setSavingCategory(false);
+    }
   };
 
   const clearAllFiles = () => {
-    if (!items.length) return;
+    if (working || categorySaveLock.current || !items.length) return;
     if (!window.confirm(`Hapus semua ${items.length} dokumen dari permohonan ini?`)) return;
     items.forEach((item) => {
       if (item.serverId && applicationId) {
@@ -509,7 +565,7 @@ function App() {
   };
   const removeFile = (id: string) => {
     const item=items.find((x)=>x.id===id);
-    if(!item || working)return;
+    if(!item || working || categorySaveLock.current)return;
     if(item.serverId && applicationId)deleteFile(applicationId,item.serverId).catch((e)=>announce('warning',String(e)));
     setItems((prev)=>prev.filter((x)=>x.id!==id));setResult(null);
     announce('info','File dihapus dari daftar. Analisis perlu dijalankan ulang.');
@@ -539,7 +595,7 @@ function App() {
     if (!win) announce('warning', 'Popup diblokir browser. Izinkan popup untuk membuka dokumen.');
     window.setTimeout(() => URL.revokeObjectURL(url), 120000);
   };
-  const visibleDocuments = items.filter((item) => `${item.name} ${categoryById(item.category)?.name} ${item.subtype || ''}`.toLowerCase().includes(docSearch.toLowerCase()));
+  const visibleDocuments = items.filter((item) => `${item.name} ${(categoryById(item.category)?.name ?? 'Perlu Pilih Kategori')} ${item.subtype || ''}`.toLowerCase().includes(docSearch.toLowerCase()));
 
   return <div className="app-shell">
     <Sidebar active={active} navigate={goTo} open={mobileNav} close={() => setMobileNav(false)} />
@@ -605,7 +661,7 @@ function App() {
               <div className="batch-review-section">
                 <div className="batch-summary-header">
                   <div className="batch-summary-left">
-                    <h4>Daftar Dokumen Terklasifikasi ({items.length})</h4>
+                    <h4>Daftar Dokumen ({items.length})</h4>
                     {formCount === 1 ? (
                       <span className="status-pill success"><CheckCircle2 size={14} /> Formulir Permohonan Siap</span>
                     ) : formCount === 0 ? (
@@ -620,6 +676,14 @@ function App() {
                   </button>
                 </div>
 
+                {unclassifiedCount > 0 && <div className="upload-filters" role="group" aria-label="Filter klasifikasi dokumen">
+                  <button type="button" aria-pressed={!showUnclassified} onClick={() => setShowUnclassified(false)}>
+                    Semua ({items.length})
+                  </button>
+                  <button type="button" className="unclassified-filter" aria-pressed={showUnclassified} onClick={() => setShowUnclassified(true)}>
+                    <AlertCircle size={14} aria-hidden="true" /> Perlu Pilih Kategori ({unclassifiedCount})
+                  </button>
+                </div>}
                 <div className="batch-table-wrapper">
                   <div className="table-scroll">
                     <table className="batch-table">
@@ -631,7 +695,7 @@ function App() {
                         </tr>
                       </thead>
                       <tbody>
-                        {items.map((item) => {
+                        {reviewItems.map((item) => {
                           const currentVal = item.category === 'personel'
                             ? `personel:${item.subtype || PERSONNEL_TYPES[0]}`
                             : item.category;
@@ -641,7 +705,7 @@ function App() {
                             !(PERSONNEL_TYPES as readonly string[]).includes(item.subtype!);
 
                           return (
-                            <tr key={item.id}>
+                            <tr key={item.id} className={item.category === 'unknown' ? 'unclassified-row' : undefined}>
                               <td className="batch-td-doc">
                                 <div className="batch-file-info">
                                   <span className={`category-icon category-${item.category} batch-file-icon`}>
@@ -656,6 +720,8 @@ function App() {
                               <td className="batch-td-category">
                                 <select
                                   className="table-category-select"
+                                  aria-label={`Kategori ${item.name}`}
+                                  disabled={working || savingCategory}
                                   value={currentVal}
                                   onChange={(e) => {
                                     const val = e.target.value;
@@ -666,6 +732,7 @@ function App() {
                                     }
                                   }}
                                 >
+                                  {item.category === 'unknown' && <option value="unknown" disabled>{item.isClassifying ? 'Mengenali…' : 'Perlu Pilih Kategori'}</option>}
                                   {CATEGORIES.map((c) => {
                                     if (c.id === 'personel') {
                                       return (
@@ -724,7 +791,7 @@ function App() {
                 <strong>Jalankan Analisis Dokumen</strong>
                 <small>Berkas akan dianalisis secara otomatis sesuai kategorinya dan bukti dicocokkan dengan Formulir Permohonan.</small>
               </div>
-              <button className="button button-primary" type="button" disabled={working} onClick={runAnalysis}>
+              <button className="button button-primary" type="button" title={savingCategory ? 'Menyimpan kategori…' : classificationMessage ?? undefined} disabled={working || savingCategory || Boolean(classificationMessage)} onClick={runAnalysis}>
                 <Activity size={17}/>
                 {working ? `Memproses... ${syncCount ? `unggah ${syncCount}` : `${job?.progress ?? 0}%`}` : 'Mulai Analisis'}
               </button>
@@ -774,7 +841,7 @@ function App() {
               <label className="search-field"><Search size={17}/><input type="search" placeholder="Cari field atau nilai..." value={query} onChange={(e) => setQuery(e.target.value)} /></label>
               <div className="filter-buttons" role="group" aria-label="Filter status">{(['ALL','MATCH','REVIEW','MISMATCH'] as Filter[]).map((f) => <button key={f} className={filter === f ? 'active' : ''} onClick={() => setFilter(f)}>{f === 'ALL' ? 'Semua' : f === 'MATCH' ? 'Match' : f === 'REVIEW' ? 'Review' : 'Mismatch'}</button>)}</div>
             </div></div>
-            {working && <div className="analysis-progress" role="status"><strong>{job?.message || 'Memproses...'}</strong><div className="progress-track"><span style={{width:`${job?.progress ?? 0}%`}}/></div><small>{job?.progress ?? 0}%</small></div>}
+            {working && <div className="analysis-progress" role="status"><strong>{reconnecting ? 'Koneksi terputus. Mencoba kembali…' : job?.message || 'Memeriksa status analisis…'}</strong><div className="progress-track"><span style={{width:`${job?.progress ?? 0}%`}}/></div><small>{job?.progress ?? 0}%</small></div>}
             {backendError && <div className="analysis-error"><AlertCircle size={18}/>{backendError}</div>}
             {result?.warnings?.length ? <div className="analysis-errors"><strong>Peringatan parser formulir</strong>{result.warnings.map((e,i)=><p key={i}>{e}</p>)}</div> : null}
             {result?.errors?.length ? <div className="analysis-errors"><strong>{result.errors.length} dokumen gagal diekstrak</strong>{result.errors.map((e,idx)=><p key={`${e.document_id}-${idx}`}>{e.filename}: {e.error}</p>)}</div>:null}
@@ -794,7 +861,7 @@ function App() {
             {items.length === 0 ? <EmptyDocuments goUpload={() => goTo('upload')}/> : <div className="documents-grid">{visibleDocuments.map((item) => <article className="document-card" key={item.id}>
               <div className="document-card-top"><span className={`document-file-icon category-${item.category}`}><FileText size={25}/></span><button className="icon-button" aria-label={`Hapus ${item.name}`} title="Hapus dari daftar sementara" onClick={() => removeFile(item.id)}><Trash2 size={17}/></button></div>
               <strong title={item.name}>{item.name}</strong><span className="document-type">{item.name.split('.').at(-1)?.toUpperCase()} · {sizeLabel(item.size)}</span>
-              <div className="document-meta"><span>{categoryById(item.category)?.name}</span>{item.subtype && <small>{item.subtype}</small>}</div>
+              <div className="document-meta"><span>{(categoryById(item.category)?.name ?? 'Perlu Pilih Kategori')}</span>{item.subtype && <small>{item.subtype}</small>}</div>
               <div className="document-card-footer"><span><CalendarDays size={13}/>{dateLabel(item.addedAt)}</span><button className="open-file" onClick={() => viewFile(item.file,item.serverId)}><ExternalLink size={15}/> Buka</button></div>
             </article>)}{!visibleDocuments.length && <p className="doc-no-results">Tidak ada dokumen yang cocok dengan pencarian.</p>}</div>}
           </div>

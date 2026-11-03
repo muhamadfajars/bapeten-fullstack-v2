@@ -6,6 +6,26 @@ This is a **working local/intranet integration candidate**, not a certified 100%
 
 The left menu switches between five independent pages (other pages are hidden): **Dashboard**, **Upload Dokumen**, **Formulir Permohonan**, **Hasil Matching**, and **Dokumen**. Upload a single PDF application form and supporting files, then click **Mulai Analisis** in Upload. The frontend submits all pending files to the API, polls the job, and displays real backend results, per-document errors, and evidence source pages. No demo matching is displayed as real data.
 
+Refreshing an existing application's page restores its latest analysis from the server.
+Queued/running analyses resume progress polling; completed analyses load their own result,
+and failed analyses show their recorded error. Monitoring retries temporary connection errors
+and server failures with a delay capped at 15 seconds, without resubmitting an analysis.
+This restores server-side analyses, not files that have not yet been uploaded.
+
+## Shared classification rules
+
+Edit filename patterns, their order, category/subtype mappings, and weak filename hints only in
+`backend/app/classification_rules.json`. Python reads this file alongside the backend module;
+the frontend imports the same JSON and bundles it for instant browser matching. Keep the JSON
+with the backend when packaging, and include it when building the frontend. After changing
+rules, rebuild the frontend and restart the backend together. Content/OCR rules remain in
+`backend/app/classifier.py` because they run only on the backend.
+
+The consolidation preserves the existing matching logic and regex flags in each runtime.
+`backend/tests/fixtures/classification_filename_baseline.json` records 51 pre-consolidation
+cases, including ambiguous and unknown filenames. Both classifier test suites check those
+results; expected results should change only when a behavior change is intentional.
+
 
 ## Single-command HPC launch (port 8001; recommended for internal pilot)
 

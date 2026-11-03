@@ -17,7 +17,7 @@ export type UploadItem = {
   id: string;
   name: string;
   size: number;
-  category: CategoryId;
+  category: CategoryId | 'unknown';
   subtype?: string;
   addedAt: string;
   file?: File;

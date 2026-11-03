@@ -1,0 +1,122 @@
+{
+  "schemaVersion": 1,
+  "flags": "i",
+  "filenamePatterns": [
+    {
+      "pattern": "formulir|form[\\s_-]*permohonan|ktun.*permohonan|permohonan[\\s_-]*\\d{5,7}",
+      "category": "formulir",
+      "subtype": null
+    },
+    {
+      "pattern": "surat[\\s_-]*penunjukan[\\s_-]*(?:tugas|(?:sebagai[\\s_-]*)?(?:ppr|petugas[\\s_-]*proteksi(?:[\\s_-]*radiasi)?))(?![a-z0-9])|(?:sk[\\s_-]*)?penetapan[\\s_-]*pekerja[\\s_-]*radiasi|penunjukan[\\s_-]*(?:ppr(?![a-z0-9])|petugas[\\s_-]*proteksi[\\s_-]*radiasi)|sk[\\s_-]*penunjukan|pengangkatan.*ppr",
+      "category": "personel",
+      "subtype": "Surat Penunjukan Tugas"
+    },
+    {
+      "pattern": "program[\\s_-]*proteksi|proteksi[\\s_-]*radiasi|ppkr|keselamatan[\\s_-]*radiasi",
+      "category": "proteksi",
+      "subtype": null
+    },
+    {
+      "pattern": "(?:program|dokumen)[\\s_-]*perawatan|perawatan[\\s_-]*(?:pesawat|fasilitas)|maintenance[\\s_-]*program|pemeliharaan",
+      "category": "perawatan",
+      "subtype": null
+    },
+    {
+      "pattern": "sistem[\\s_-]*manajemen|manajemen[\\s_-]*fasilitas|quality[\\s_-]*management",
+      "category": "manajemen",
+      "subtype": null
+    },
+    {
+      "pattern": "dokumen[\\s_-]*teknis|rencana[\\s_-]*teknis|gedung[\\s_-]*penahan|penahan[\\s_-]*radiasi|denah[\\s_-]*ruang",
+      "category": "teknis",
+      "subtype": null
+    },
+    {
+      "pattern": "surat[\\s_-]*keterangan[\\s_-]*kerja|skk\\b",
+      "category": "personel",
+      "subtype": "Surat Keterangan Kerja"
+    },
+    {
+      "pattern": "sprint|surat[\\s_-]*perintah|surat[\\s_-]*tugas",
+      "category": "personel",
+      "subtype": "Surat Perintah"
+    },
+    {
+      "pattern": "sertifikat.*(?:kompetensi|ppr|lulus)",
+      "category": "personel",
+      "subtype": "Sertifikat Kompetensi"
+    },
+    {
+      "pattern": "sikr\\b|surat[\\s_-]*izin[\\s_-]*kerja",
+      "category": "personel",
+      "subtype": "Surat Izin Kerja"
+    },
+    {
+      "pattern": "data[\\s_-]*sib|kartu[\\s_-]*sib|sib\\b|izin[\\s_-]*bekerja",
+      "category": "personel",
+      "subtype": "Surat Izin Bekerja (SIB)"
+    },
+    {
+      "pattern": "sipr?\\b|dr\\.?[\\s_-]*[a-z]+[\\s_-]*sp\\.?rad|surat[\\s_-]*izin[\\s_-]*prakt?ik",
+      "category": "personel",
+      "subtype": "Surat Izin Praktik (SIP)"
+    },
+    {
+      "pattern": "evaluasi[\\s_-]*dosis|zero[\\s_-]*check|zerocheck|zero[\\s_-]*cek",
+      "category": "personel",
+      "subtype": "Evaluasi Dosis / Zero Check"
+    },
+    {
+      "pattern": "dosis[\\s_-]*awal|laporan[\\s_-]*dosis|petugas[\\s_-]*tld|tld\\b|dosimeter|osl\\b",
+      "category": "tld",
+      "subtype": null
+    },
+    {
+      "pattern": "spesifikasi|brochure|brosur|manual[\\s_-]*book|datasheet|data[\\s_-]*sheet",
+      "category": "spesifikasi",
+      "subtype": null
+    },
+    {
+      "pattern": "persetujuan[\\s_-]*impor|persetujuan[\\s_-]*import|izin[\\s_-]*impor|izin[\\s_-]*import",
+      "category": "impor",
+      "subtype": null
+    },
+    {
+      "pattern": "uji[\\s_-]*kesesuaian|sertifikat[\\s_-]*uk|ktun.*uk|lhu\\b|resume[\\s_-]*bapeten",
+      "category": "kesesuaian",
+      "subtype": null
+    },
+    {
+      "pattern": "uji[\\s_-]*fungsi|ujifungsi|acceptance[\\s_-]*test|accepatance|caf\\b|bauf\\b|bast\\b|service[\\s_-]*report|installation.*record|installation.*verification",
+      "category": "fungsi",
+      "subtype": null
+    },
+    {
+      "pattern": "kebocoran[\\s_-]*tabung|pengukuran[\\s_-]*kebocoran|uji[\\s_-]*kebocoran",
+      "category": "kebocoran",
+      "subtype": null
+    },
+    {
+      "pattern": "pengukuran[\\s_-]*paparan|paparan[\\s_-]*radiasi|upar\\b|uji[\\s_-]*paparan|survey[\\s_-]*radiasi",
+      "category": "paparan",
+      "subtype": null
+    },
+    {
+      "pattern": "foto[\\s_-]*label|label[\\s_-]*generator|label[\\s_-]*tabung|label[\\s_-]*unit|sn[\\s_-]*(?:unit|tube|tabung|generator)(?![a-z0-9])|foto[\\s_-]*tube|foto[\\s_-]*nomor[\\s_-]*seri|foto[\\s_-]*keseluruhan",
+      "category": "label",
+      "subtype": null
+    }
+  ],
+  "weakNameHints": [
+    "sip",
+    "sipr",
+    "sib",
+    "tld",
+    "osl",
+    "dosimeter",
+    "proteksi radiasi",
+    "keselamatan radiasi",
+    "pemeliharaan"
+  ]
+}

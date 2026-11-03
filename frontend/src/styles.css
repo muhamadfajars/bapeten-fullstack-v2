@@ -217,6 +217,20 @@ h1 span { color: #a84951; }
 .batch-table tr:hover td {
   background: #fafbfd;
 }
+.batch-table .unclassified-row td { background: #fffbeb; }
+.batch-table .unclassified-row:hover td { background: #fef3c7; }
+.batch-table .unclassified-row td:first-child { box-shadow: inset 3px 0 #d97706; }
+.unclassified-row .table-category-select { border-color: #d97706; }
+.upload-filters { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 12px; }
+.upload-filters button {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 8px 12px; border: 1px solid #cbd5e1; border-radius: 8px;
+  background: #fff; color: #475569; font-size: 12px; font-weight: 600;
+}
+.upload-filters button[aria-pressed="true"] { background: #e2e8f0; border-color: #64748b; color: #1e293b; }
+.upload-filters .unclassified-filter { border-color: #f59e0b; color: #92400e; background: #fffbeb; }
+.upload-filters .unclassified-filter[aria-pressed="true"] { background: #fde68a; border-color: #b45309; color: #78350f; }
+.upload-filters button:focus-visible { outline: 2px solid #2563eb; outline-offset: 2px; }
 .batch-th-doc, .batch-td-doc {
   width: auto;
   overflow: hidden;

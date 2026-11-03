@@ -4,7 +4,7 @@ This is an internal single-workspace prototype. Configure trusted reverse proxy,
 authentication and access controls before any multi-tenant production deployment.
 """
 from __future__ import annotations
-import hashlib, hmac, os, re, shutil, time
+import hashlib, hmac, json, os, re, shutil, time
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -12,6 +12,7 @@ from threading import Lock
 from fastapi import Request, FastAPI, UploadFile, File, Form, Depends, HTTPException, Header, BackgroundTasks
 from fastapi.responses import FileResponse, RedirectResponse
 from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel
 from . import storage
 from . import vpn_access
 from . import classifier
@@ -47,7 +48,7 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=origins,
     allow_credentials=False,
-    allow_methods=['GET','POST','DELETE','OPTIONS'],
+    allow_methods=['GET','POST','PATCH','DELETE','OPTIONS'],
     allow_headers=['Authorization','Content-Type','X-Bapeten-Vpn-User']
 )
 POOL=ThreadPoolExecutor(max_workers=max(1,int(os.environ.get('BAPETEN_ANALYSIS_WORKERS','1'))))
@@ -157,6 +158,31 @@ async def classify_batch(files: list[UploadFile] = File(...)):
     return {'results': results}
 
 
+class DocumentCategoryUpdate(BaseModel):
+    category: str
+    subtype: str | None = None
+
+
+@app.patch('/api/v1/applications/{aid}/documents/{did}',dependencies=[Depends(authorize)])
+def update_document_category(aid: str, did: str, payload: DocumentCategoryUpdate):
+    must_app(aid)
+    with SUBMIT_LOCK:
+        if storage.get_job_latest_running(aid):
+            raise HTTPException(409, 'Tidak dapat mengubah kategori saat analisis aktif')
+        doc = storage.document(did, aid)
+        if not doc:
+            raise HTTPException(404, 'Berkas tidak ditemukan')
+        if payload.category not in CATEGORIES:
+            raise HTTPException(422, 'Kategori tidak dikenal')
+        if payload.category == 'formulir' and Path(doc['filename']).suffix.lower() != '.pdf':
+            raise HTTPException(415, 'Formulir acuan saat ini harus PDF')
+        subtype = (payload.subtype or '').strip() if payload.category == 'personel' else None
+        if payload.category == 'personel' and not subtype:
+            raise HTTPException(422, 'Pilih subjenis dokumen personel')
+        storage.update_document_category(did, aid, payload.category, subtype)
+        return {'document': next(d for d in storage.documents(aid) if d['id'] == did)}
+
+
 @app.delete('/api/v1/applications/{aid}/documents/{did}',dependencies=[Depends(authorize)])
 def remove_document(aid:str,did:str):
     must_app(aid)
@@ -241,16 +267,35 @@ def _run(jid,aid):
 @app.post('/api/v1/applications/{aid}/analyses',dependencies=[Depends(authorize)])
 def start_analysis(aid:str):
     must_app(aid)
-    docs=storage.documents(aid)
-    forms=[d for d in docs if d['category']=='formulir']
-    if len(forms)!=1:raise HTTPException(422,'Wajib tepat satu Formulir Permohonan PDF untuk acuan analisis')
     with SUBMIT_LOCK:
+        docs=storage.documents(aid)
+        forms=[d for d in docs if d['category']=='formulir']
+        if len(forms)!=1:raise HTTPException(422,'Wajib tepat satu Formulir Permohonan PDF untuk acuan analisis')
         with storage.db() as con:
             active=storage.row(con,"SELECT id,status FROM jobs WHERE app_id=? AND status IN ('queued','running') ORDER BY created DESC LIMIT 1",(aid,))
         if active:raise HTTPException(409,'Analisis sudah berjalan untuk permohonan ini')
         jid=storage.create_job(aid)
         POOL.submit(_run,jid,aid)
     return {'job_id':jid,'status':'queued','progress':0}
+
+
+@app.get('/api/v1/applications/{aid}/jobs/latest',dependencies=[Depends(authorize)])
+def latest_job(aid: str):
+    must_app(aid)
+    j = storage.get_latest_job(aid)
+    return {'job': {k: j[k] for k in ('id', 'status', 'progress', 'message', 'error')} if j else None}
+
+
+@app.get('/api/v1/applications/{aid}/jobs/{jid}/results',dependencies=[Depends(authorize)])
+def job_results(aid: str, jid: str):
+    must_app(aid)
+    j = storage.get_job(jid, aid)
+    if not j or j['status'] != 'completed' or not j.get('result'):
+        raise HTTPException(404, 'Hasil analisis belum tersedia atau sudah tidak berlaku')
+    result = json.loads(j['result'])
+    if result is None:
+        raise HTTPException(404, 'Hasil analisis sudah tidak berlaku')
+    return result
 
 
 @app.get('/api/v1/applications/{aid}/jobs/{jid}',dependencies=[Depends(authorize)])
