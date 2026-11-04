@@ -48,7 +48,10 @@ function Brand() {
   return (
     <div className="brand-lockup">
       <img src={bapetenLogo} alt="Logo BAPETEN" className="brand-logo" />
-      <div><div className="brand-name">BAPETEN</div><div className="brand-description">Badan Pengawas Tenaga Nuklir</div></div>
+      <div className="brand-text">
+        <div className="brand-name">BAPETEN</div>
+        <div className="brand-description">Badan Pengawas Tenaga Nuklir</div>
+      </div>
     </div>
   );
 }
@@ -69,11 +72,7 @@ function Sidebar({ active, navigate, open, close, working }: { active: PageId; n
         ))}
       </nav>
       <div className="sidebar-foot">
-        <div className="sidebar-foot-brand">
-          <span className="sidebar-seal"><img src={bapetenLogo} alt="" className="sidebar-seal-img" /></span>
-          <div><strong>BAPETEN</strong><small>Asisten Evaluasi Perizinan</small></div>
-        </div>
-        <div className="sidebar-copyright">© BAPETEN</div>
+        <div className="sidebar-copyright">© 2026 BAPETEN · Asisten Evaluasi Perizinan RDI</div>
       </div>
     </aside>
   </>;
