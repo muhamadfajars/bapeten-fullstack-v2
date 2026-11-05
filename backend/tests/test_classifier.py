@@ -51,7 +51,7 @@ class TestClassifier(unittest.TestCase):
             ("HASIL UJI (ZERO CHECK) TLD BARC.pdf", "personel", "Evaluasi Dosis / Zero Check"),
             ("zero check dr dan dikna.pdf", "personel", "Evaluasi Dosis / Zero Check"),
             ("zero check isra.pdf", "personel", "Evaluasi Dosis / Zero Check"),
-            ("Laporan Dosis Awal RS Hermina Kepanjen.pdf", "tld", None),
+            ("Laporan Dosis Awal RS Hermina Kepanjen.pdf", "personel", "Evaluasi Dosis / Zero Check"),
             ("Brochure_uDR 566i_EN_HD.pdf", "spesifikasi", None),
             ("Foto label tube uDR 566i.jpeg", "label", None),
             ("Persetujuan Impor UDR566i-A.pdf", "impor", None),
@@ -125,6 +125,31 @@ class TestClassifier(unittest.TestCase):
                     result = classify_document('scan001' + Path(name).suffix, data)
                     self.assertEqual((result['category'], result['subtype']), (category, subtype))
                     self.assertEqual(result['layer'], 2)
+
+    def test_dose_reports_and_tld_administration(self):
+        for title in ('LAPORAN DOSIS AWAL LENCANA OSL', 'LAPORAN DOSIS TLD',
+                      'HASIL PEMBACAAN DOSIS OSL', 'LAPORAN HASIL EVALUASI DOSIS', 'DOSIS AWAL'):
+            with self.subTest(title=title):
+                self.assertEqual(classify_by_filename(title + '.pdf')[:2], ('personel', 'Evaluasi Dosis / Zero Check'))
+                self.assertEqual(classify_by_content('NUKLINDOLAB\nLENCANA OSL\n' + title)[:2], ('personel', 'Evaluasi Dosis / Zero Check'))
+        for title in ('DAFTAR PEMAKAI TLD', 'DAFTAR PENGGUNA LENCANA OSL', 'PETUGAS TLD', 'KEPESERTAAN PEMANTAUAN OSL'):
+            with self.subTest(title=title):
+                self.assertEqual(classify_by_filename(title + '.pdf')[0], 'tld')
+                self.assertEqual(classify_by_content(title)[0], 'tld')
+        for title in ('LENCANA OSL', 'TLD BETA GAMMA', 'NUKLINDOLAB', 'dosimeter'):
+            self.assertIsNone(classify_by_filename(title + '.pdf')[0])
+            self.assertIsNone(classify_by_content(title)[0])
+        self.assertIsNone(classify_by_filename('Laporan Dosis dan Daftar Pemakai TLD.pdf')[0])
+        self.assertIsNone(classify_by_content('LAPORAN DOSIS\nDAFTAR PEMAKAI TLD')[0])
+
+    def test_hermina_initial_dose_sample_by_name_and_content(self):
+        path = Path(__file__).resolve().parents[2] / 'frontend/src/data/sample/Batch_116843.26/20260714134027-Laporan Dosis Awal RS Hermina Kepanjen Periode Oktober - Desember 2026.pdf'
+        if not path.is_file():
+            self.skipTest('Local sample document not available')
+        for name, layer in ((path.name, 1), ('scan001.pdf', 2)):
+            result = classify_document(name, path.read_bytes())
+            self.assertEqual((result['category'], result['subtype'], result['layer']),
+                             ('personel', 'Evaluasi Dosis / Zero Check', layer))
 
 if __name__ == "__main__":
     unittest.main()

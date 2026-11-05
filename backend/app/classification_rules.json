@@ -63,12 +63,12 @@
       "subtype": "Surat Izin Praktik (SIP)"
     },
     {
-      "pattern": "evaluasi[\\s_-]*dosis|zero[\\s_-]*check|zerocheck|zero[\\s_-]*cek",
+      "pattern": "evaluasi[\\s_-]*dosis|pembacaan[\\s_-]*dosis|laporan[\\s_-]*dosis|dosis[\\s_-]*awal|zero[\\s_-]*check|zerocheck|zero[\\s_-]*cek",
       "category": "personel",
       "subtype": "Evaluasi Dosis / Zero Check"
     },
     {
-      "pattern": "dosis[\\s_-]*awal|laporan[\\s_-]*dosis|petugas[\\s_-]*tld|tld\\b|dosimeter|osl\\b",
+      "pattern": "petugas[\\s_-]*(?:tld|osl)\\b|daftar[\\s_-]*(?:pemakai|pengguna|peserta)[\\s_-]*(?:lencana[\\s_-]*)?(?:tld|osl|dosimeter)\\b|(?:administrasi|kepesertaan)[\\s_-]*(?:(?:pemantauan|layanan)[\\s_-]*)?(?:tld|osl|dosimeter)\\b",
       "category": "tld",
       "subtype": null
     },

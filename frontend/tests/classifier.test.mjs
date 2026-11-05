@@ -16,11 +16,26 @@ const sandbox = { exports: {}, require: name => {
 vm.runInNewContext(compiled.outputText, sandbox);
 const classify = sandbox.exports.classifyByFilename;
 
-test('shared rules preserve browser results recorded before consolidation', () => {
+test('shared rules match the filename regression baseline', () => {
   const baseline = JSON.parse(readFileSync(new URL('../../backend/tests/fixtures/classification_filename_baseline.json', import.meta.url), 'utf8'));
   for (const { name, browser } of baseline) {
     assert.deepEqual(JSON.parse(JSON.stringify(classify(name))), browser, name);
   }
+});
+
+test('dose reports are personnel documents, while explicit TLD administration stays separate', () => {
+  for (const name of ['20260714134027-Laporan Dosis Awal RS Hermina Kepanjen Periode Oktober - Desember 2026.pdf',
+    'Laporan_Dosis_OSL.pdf', 'Hasil Pembacaan Dosis TLD.pdf', 'Dosis Awal.pdf', 'Evaluasi Dosis OSL.pdf']) {
+    assert.equal(classify(name)?.category, 'personel', name);
+    assert.equal(classify(name)?.subtype, 'Evaluasi Dosis / Zero Check', name);
+  }
+  for (const name of ['Daftar Pemakai TLD.pdf', 'Daftar Pengguna Lencana OSL.pdf', 'Petugas TLD.pdf', 'Kepesertaan Pemantauan OSL.pdf']) {
+    assert.equal(classify(name)?.category, 'tld', name);
+  }
+  for (const name of ['Lencana OSL.pdf', 'TLD.pdf', 'dosimeter.pdf', 'NUKLINDOLAB.pdf']) {
+    assert.equal(classify(name), null, name);
+  }
+  assert.equal(classify('Laporan Dosis dan Daftar Pemakai TLD.pdf')?.category, 'unknown');
 });
 
 test('tube label aliases resolve in the browser', () => {

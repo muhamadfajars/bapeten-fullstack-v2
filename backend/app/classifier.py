@@ -66,10 +66,11 @@ CONTENT_PATTERNS: list[tuple[str, str, Optional[str]]] = [
     (r'(?i)SURAT\s+IZIN\s+KERJA|SIKR\b', 'personel', 'Surat Izin Kerja'),
     (r'(?i)SURAT\s+IZIN\s+BEKERJA\s+PETUGAS|SURAT\s+IZIN\s+BEKERJA\s+\(SIB\)|SIB\s+PPR', 'personel', 'Surat Izin Bekerja (SIB)'),
     (r'(?i)SURAT\s+IZIN\s+PRAKTIK|SURAT\s+IZIN\s+PRAKTEK|DOKTER\s+SPESIALIS\s+RADIOLOGI', 'personel', 'Surat Izin Praktik (SIP)'),
-    (r'(?i)ZERO\s+CHECK|ZERO\s+CEK|EVALUASI\s+DOSIS|DOSIS\s+RADIASI\s+TLD', 'personel', 'Evaluasi Dosis / Zero Check'),
+    (r'(?i)ZERO\s+CHECK|ZERO\s+CEK|(?:LAPORAN\s+)?(?:HASIL\s+)?(?:EVALUASI|PEMBACAAN)\s+DOSIS|LAPORAN\s+DOSIS|DOSIS\s+AWAL|DOSIS\s+RADIASI\s+TLD', 'personel', 'Evaluasi Dosis / Zero Check'),
     
     # TLD
-    (r'(?i)NUKLINDOLAB|TLD\s+BETA\s+GAMMA|LENCANA\s+TLD|LENCANA\s+OSL|DOSIS\s+PERORANGAN|LAPORAN\s+DOSIS\s+AWAL|DAFTAR\s+PEMAKAI\s+TLD|PETUGAS\s+TLD', 'tld', None),
+    # Technology names and laboratory branding alone do not identify administration.
+    (r'(?i)DAFTAR\s+(?:PEMAKAI|PENGGUNA|PESERTA)\s+(?:LENCANA\s+)?(?:TLD|OSL|DOSIMETER)\b|PETUGAS\s+(?:TLD|OSL)\b|(?:ADMINISTRASI|KEPESERTAAN)\s+(?:(?:PEMANTAUAN|LAYANAN)\s+)?(?:TLD|OSL|DOSIMETER)\b', 'tld', None),
     
     # Spesifikasi
     (r'(?i)SPESIFIKASI|SPECIFICATIONS|BROCHURE|TECHNICAL\s+SPECIFICATIONS', 'spesifikasi', None),

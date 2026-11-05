@@ -209,7 +209,6 @@ function MatchingSection({ section, search, filter, onRowClick, expandedByDefaul
         <table className="matching-table"><thead><tr><th scope="col">Field</th><th scope="col">Formulir</th><th scope="col">Dokumen</th><th scope="col">Skor</th><th scope="col">Status</th></tr></thead><tbody>
           {filtered.map((row, i) => <tr key={`${row.id}-${i}`} className={`matching-row-${row.status.toLowerCase()}`} onClick={() => onRowClick(row, section)}>
             <td className="field-column"><button type="button" className="field-detail-button" aria-label={`Lihat detail ${row.field}`} onClick={event => { event.stopPropagation(); onRowClick(row, section); }}>{row.field}</button></td><td>{row.expected}</td><td className={row.observed === '—' ? 'empty-observed' : ''}>{row.observed}
-              {row.document_id && <button type="button" className="matching-evidence-button" aria-label={`Lihat Bukti ${row.field}`} onClick={event => { event.stopPropagation(); onRowClick(row, section); }}><Eye size={14} aria-hidden="true"/> Lihat Bukti</button>}
             </td>
             <td className="score-column">{row.score === null ? '—' : `${row.score.toFixed(1)}%`}</td><td><span className={`streamlit-status status-text-${row.status.toLowerCase()}`}>{row.status}</span></td>
           </tr>)}
@@ -217,7 +216,7 @@ function MatchingSection({ section, search, filter, onRowClick, expandedByDefaul
         </tbody></table>
       </div>
       <StreamlitDetails section={section} filter={filter} search={search} />
-      <div className="table-footer"><span>Pilih field untuk detail atau Lihat Bukti untuk sumber.</span><span>{filtered.length} dari {section.rows.length} field</span></div>
+      <div className="table-footer"><span>Pilih field untuk melihat detail dan sumber dokumen.</span><span>{filtered.length} dari {section.rows.length} field</span></div>
     </div>}
   </div>;
 }
